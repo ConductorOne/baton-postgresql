@@ -13,11 +13,27 @@ import (
 )
 
 type FunctionModel struct {
-	ID     int64    `db:"oid"`
-	Name   string   `db:"proname"`
-	Schema string   `db:"nspname"`
-	Owner  int64    `db:"proowner"`
-	ACLs   []string `db:"proacl"`
+	ID      int64    `db:"oid"`
+	Name    string   `db:"proname"`
+	Schema  string   `db:"nspname"`
+	OwnerID int64    `db:"proowner"`
+	ACLs    []string `db:"proacl"`
+}
+
+func (t *FunctionModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *FunctionModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *FunctionModel) AllPrivileges() PrivilegeSet {
+	return Execute
+}
+
+func (t *FunctionModel) DefaultPrivileges() PrivilegeSet {
+	return Execute
 }
 
 func (c *Client) GetFunction(ctx context.Context, functionID int64) (*FunctionModel, error) {

@@ -5,7 +5,14 @@ import (
 	"strings"
 )
 
-const NoPrivs = 0
+type ACLResource interface {
+	GetOwnerID() int64
+	GetACLs() []string
+	AllPrivileges() PrivilegeSet
+	DefaultPrivileges() PrivilegeSet
+}
+
+const EmptyPrivilegeSet = PrivilegeSet(0)
 
 type PrivilegeSet uint64
 
@@ -85,7 +92,7 @@ func PrivilegeSetFromRune(s rune) PrivilegeSet {
 			return key
 		}
 	}
-	return NoPrivs
+	return EmptyPrivilegeSet
 }
 
 const (
@@ -135,6 +142,14 @@ type Acl struct {
 	grantee        string
 }
 
+func (a *Acl) Privileges() PrivilegeSet {
+	return a.privs
+}
+
+func (a *Acl) GrantPrivileges() PrivilegeSet {
+	return a.privsWithGrant
+}
+
 func (a *Acl) Check(p PrivilegeSet) (bool, bool) {
 	return a.privs&p == p, a.privsWithGrant&p == p
 }
@@ -144,7 +159,7 @@ func (a *Acl) Grantee() string {
 }
 
 func (a *Acl) String() string {
-	if a.privs == NoPrivs {
+	if a.privs == EmptyPrivilegeSet {
 		return ""
 	}
 
@@ -193,7 +208,7 @@ func NewAcl(acl string) (*Acl, error) {
 			ret.privsWithGrant = ret.privsWithGrant.Set(priv)
 			priv = 0
 
-		case PrivilegeSetFromRune(c) != NoPrivs:
+		case PrivilegeSetFromRune(c) != EmptyPrivilegeSet:
 			priv = PrivilegeSetFromRune(c)
 			ret.privs = ret.privs.Set(priv)
 		}

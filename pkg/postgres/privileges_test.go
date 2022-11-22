@@ -23,9 +23,9 @@ func TestPrivilegeSet_Set(t *testing.T) {
 		},
 		{
 			"empty",
-			NoPrivs,
-			args{NoPrivs},
-			NoPrivs,
+			EmptyPrivilegeSet,
+			args{EmptyPrivilegeSet},
+			EmptyPrivilegeSet,
 		},
 	}
 	for _, tt := range tests {
@@ -49,7 +49,7 @@ func TestPrivilegeSet_Has(t *testing.T) {
 	}{
 		{
 			"empty doesn't have select",
-			NoPrivs,
+			EmptyPrivilegeSet,
 			args{Select},
 			false,
 		},
@@ -102,8 +102,8 @@ func TestAcl_String(t *testing.T) {
 		{
 			"empty",
 			fields{
-				NoPrivs,
-				NoPrivs,
+				EmptyPrivilegeSet,
+				EmptyPrivilegeSet,
 				"bar",
 				"foo",
 			},
@@ -113,7 +113,7 @@ func TestAcl_String(t *testing.T) {
 			"select",
 			fields{
 				Select,
-				NoPrivs,
+				EmptyPrivilegeSet,
 				"bar",
 				"foo",
 			},

@@ -19,6 +19,22 @@ type SchemaModel struct {
 	ACLs    []string `db:"nspacl"`
 }
 
+func (t *SchemaModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *SchemaModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *SchemaModel) AllPrivileges() PrivilegeSet {
+	return Usage | Create
+}
+
+func (t *SchemaModel) DefaultPrivileges() PrivilegeSet {
+	return EmptyPrivilegeSet
+}
+
 func (c *Client) GetSchema(ctx context.Context, schemaID int64) (*SchemaModel, error) {
 	ret := &SchemaModel{}
 

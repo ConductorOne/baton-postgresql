@@ -19,6 +19,22 @@ type TableModel struct {
 	ACLs    []string `db:"relacl"`
 }
 
+func (t *TableModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *TableModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *TableModel) AllPrivileges() PrivilegeSet {
+	return Insert | Select | Update | Delete | Truncate | References | Trigger
+}
+
+func (t *TableModel) DefaultPrivileges() PrivilegeSet {
+	return EmptyPrivilegeSet
+}
+
 func (c *Client) GetTable(ctx context.Context, tableID int64) (*TableModel, error) {
 	ret := &TableModel{}
 

@@ -19,6 +19,22 @@ type ViewModel struct {
 	ACLs    []string `db:"relacl"`
 }
 
+func (t *ViewModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *ViewModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *ViewModel) AllPrivileges() PrivilegeSet {
+	return Insert | Select | Update | Delete | Truncate | References | Trigger
+}
+
+func (t *ViewModel) DefaultPrivileges() PrivilegeSet {
+	return EmptyPrivilegeSet
+}
+
 func (c *Client) GetView(ctx context.Context, viewID int64) (*ViewModel, error) {
 	ret := &ViewModel{}
 

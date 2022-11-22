@@ -91,19 +91,17 @@ func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken 
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(
-		ctx,
-		resource,
-		r.client,
-		table.OwnerID,
-		table.ACLs,
-		postgres.Select|postgres.Insert|postgres.Update|postgres.Delete|postgres.Truncate|postgres.Trigger|postgres.References,
-	)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, table)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newTableSyncer(ctx context.Context, c *postgres.Client) *tableSyncer {

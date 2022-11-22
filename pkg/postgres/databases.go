@@ -18,6 +18,22 @@ type DatabaseModel struct {
 	ACLs    []string `db:"datacl"`
 }
 
+func (t *DatabaseModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *DatabaseModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *DatabaseModel) AllPrivileges() PrivilegeSet {
+	return Create | Temporary | Connect
+}
+
+func (t *DatabaseModel) DefaultPrivileges() PrivilegeSet {
+	return Temporary | Connect
+}
+
 func (c *Client) GetDatabase(ctx context.Context, dbID int64) (*DatabaseModel, error) {
 	ret := &DatabaseModel{}
 

@@ -76,19 +76,17 @@ func (r *largeObjectSyncer) Grants(ctx context.Context, resource *v2.Resource, p
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(
-		ctx,
-		resource,
-		r.client,
-		largeObject.OwnerID,
-		largeObject.ACLs,
-		postgres.Select|postgres.Update,
-	)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, largeObject)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newLargeObjectSyncer(ctx context.Context, c *postgres.Client) *largeObjectSyncer {

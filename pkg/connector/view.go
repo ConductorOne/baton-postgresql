@@ -89,19 +89,17 @@ func (r *viewSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(
-		ctx,
-		resource,
-		r.client,
-		view.OwnerID,
-		view.ACLs,
-		postgres.Select|postgres.Insert|postgres.Update|postgres.Delete|postgres.Truncate|postgres.Trigger|postgres.References,
-	)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, view)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newViewSyncer(ctx context.Context, c *postgres.Client) *viewSyncer {

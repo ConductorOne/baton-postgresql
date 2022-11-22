@@ -80,70 +80,105 @@ func formatEntitlementID(resource *v2.Resource, privName string, grant bool) str
 	}
 }
 
-func grantsForPrivs(
+func grantsForPrivilegeSet(
 	ctx context.Context,
 	resource *v2.Resource,
-	client *postgres.Client,
-	resourceOwnerID int64,
-	acls []string,
-	set postgres.PrivilegeSet,
+	principal *v2.Resource,
+	privs postgres.PrivilegeSet,
+	grantPrivs postgres.PrivilegeSet,
 ) ([]*v2.Grant, error) {
 	var ret []*v2.Grant
 
-	for _, pgACL := range acls {
+	err := postgres.EmptyPrivilegeSet.Range(func(privilege postgres.PrivilegeSet) (bool, error) {
+		entitlements, err := entitlementsForPrivs(ctx, resource, privilege)
+		if err != nil {
+			return false, err
+		}
+
+		if privs.Has(privilege) {
+			ret = append(ret, &v2.Grant{
+				Entitlement: entitlements[0],
+				Principal:   principal,
+				Id:          formatGrantID(entitlements[0].Id, principal.Id),
+			})
+		}
+
+		if grantPrivs.Has(privilege) {
+			ret = append(ret, &v2.Grant{
+				Entitlement: entitlements[1],
+				Principal:   principal,
+				Id:          formatGrantID(entitlements[1].Id, principal.Id),
+			})
+		}
+
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func roleGrantsForPrivileges(
+	ctx context.Context,
+	resource *v2.Resource,
+	roles []*postgres.RoleModel,
+	aclObj postgres.ACLResource,
+) ([]*v2.Grant, error) {
+	var ret []*v2.Grant
+
+	aclByRole := make(map[string][]*postgres.Acl)
+
+	for _, pgACL := range aclObj.GetACLs() {
 		acl, err := postgres.NewAcl(pgACL)
 		if err != nil {
 			return nil, err
 		}
 
-		if acl.Grantee() == "" {
-			continue
+		grantee := acl.Grantee()
+		if grantee == "" {
+			grantee = "PUBLIC"
 		}
 
-		grantee, err := client.GetRoleByName(ctx, acl.Grantee())
-		if err != nil {
-			return nil, err
+		roleACLs, ok := aclByRole[grantee]
+		if ok {
+			aclByRole[grantee] = append(roleACLs, acl)
+		} else {
+			aclByRole[grantee] = []*postgres.Acl{acl}
+		}
+	}
+
+	for _, r := range roles {
+		privs := postgres.EmptyPrivilegeSet
+		grantPrivs := postgres.EmptyPrivilegeSet
+
+		roleACLs := aclByRole[r.Name]
+
+		if r.Superuser || r.ID == aclObj.GetOwnerID() {
+			privs = aclObj.AllPrivileges()
+			grantPrivs = aclObj.AllPrivileges()
 		}
 
-		granteeResource := &v2.Resource{
+		// Set the ACL privs appropriately
+		for _, ra := range roleACLs {
+			privs |= ra.Privileges()
+			grantPrivs |= ra.GrantPrivileges()
+		}
+
+		principal := &v2.Resource{
 			Id: &v2.ResourceId{
 				ResourceType: roleResourceType.Id,
-				Resource:     formatObjectID(roleResourceType.Id, grantee.ID),
+				Resource:     formatObjectID(roleResourceType.Id, r.ID),
 			},
 		}
 
-		err = set.Range(func(privilege postgres.PrivilegeSet) (bool, error) {
-			if set.Has(privilege) {
-				hasPriv, hasPrivGrant := acl.Check(privilege)
-				entitlements, err := entitlementsForPrivs(ctx, resource, privilege)
-				if err != nil {
-					return false, err
-				}
-
-				hasPriv = hasPriv || grantee.Superuser || grantee.ID == resourceOwnerID
-				hasPrivGrant = hasPrivGrant || grantee.Superuser || grantee.ID == resourceOwnerID
-
-				if hasPriv {
-					ret = append(ret, &v2.Grant{
-						Entitlement: entitlements[0],
-						Principal:   granteeResource,
-						Id:          formatGrantID(entitlements[0].Id, granteeResource.Id),
-					})
-				}
-
-				if hasPrivGrant {
-					ret = append(ret, &v2.Grant{
-						Entitlement: entitlements[1],
-						Principal:   granteeResource,
-						Id:          formatGrantID(entitlements[1].Id, granteeResource.Id),
-					})
-				}
-			}
-			return true, nil
-		})
+		grants, err := grantsForPrivilegeSet(ctx, resource, principal, privs, grantPrivs)
 		if err != nil {
 			return nil, err
 		}
+
+		ret = append(ret, grants...)
 	}
 
 	return ret, nil

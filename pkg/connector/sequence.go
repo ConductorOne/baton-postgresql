@@ -89,19 +89,17 @@ func (r *sequenceSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(
-		ctx,
-		resource,
-		r.client,
-		sequence.OwnerID,
-		sequence.ACLs,
-		postgres.Select|postgres.Update|postgres.Usage,
-	)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, sequence)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newSequenceSyncer(ctx context.Context, c *postgres.Client) *sequenceSyncer {

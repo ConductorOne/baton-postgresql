@@ -66,7 +66,8 @@ func (r *columnSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 }
 
 func (r *columnSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	ens, err := entitlementsForPrivs(ctx, resource, postgres.Insert|postgres.Select|postgres.Update|postgres.References)
+	col := &postgres.ColumnModel{}
+	ens, err := entitlementsForPrivs(ctx, resource, col.AllPrivileges())
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -80,7 +81,7 @@ func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	table, err := r.client.GetTable(ctx, tID)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -90,12 +91,12 @@ func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, table.OwnerID, col.ACLs, postgres.Insert|postgres.Select|postgres.Update|postgres.References)
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, col)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	return ret, nextPageToken, nil, nil
 }
 
 func newColumnSyncer(ctx context.Context, c *postgres.Client) *columnSyncer {

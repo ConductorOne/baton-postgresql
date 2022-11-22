@@ -19,6 +19,22 @@ type SequenceModel struct {
 	ACLs    []string `db:"relacl"`
 }
 
+func (t *SequenceModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *SequenceModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *SequenceModel) AllPrivileges() PrivilegeSet {
+	return Select | Update | Usage
+}
+
+func (t *SequenceModel) DefaultPrivileges() PrivilegeSet {
+	return EmptyPrivilegeSet
+}
+
 func (c *Client) GetSequence(ctx context.Context, sequenceID int64) (*SequenceModel, error) {
 	ret := &SequenceModel{}
 

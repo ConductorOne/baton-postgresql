@@ -16,17 +16,36 @@ type ColumnModel struct {
 	ID        int64    `db:"attnum"`
 	Name      string   `db:"attname"`
 	TableName string   `db:"tablename"`
+	OwnerID   int64    `db:"relowner"`
 	ACLs      []string `db:"attacl"`
+}
+
+func (t *ColumnModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *ColumnModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *ColumnModel) AllPrivileges() PrivilegeSet {
+	return Insert | Select | Update | References
+}
+
+func (t *ColumnModel) DefaultPrivileges() PrivilegeSet {
+	return EmptyPrivilegeSet
 }
 
 func (c *Client) GetColumn(ctx context.Context, tableID int64, columnID int64) (*ColumnModel, error) {
 	ret := &ColumnModel{}
 
 	q := `
-SELECT "attnum",
-       "attname",
-       "attacl"
-FROM "pg_catalog"."pg_attribute"
+SELECT a."attnum",
+       a."attname",
+       a."attacl",
+       c."relowner"
+FROM "pg_catalog"."pg_attribute" a
+         LEFT JOIN "pg_catalog"."pg_class" c ON c."oid" = a."attrelid"
 WHERE "attrelid" = $1
   AND "attnum" = $2
 `
@@ -50,13 +69,15 @@ func (c *Client) ListColumns(ctx context.Context, tableID int64, pager *Pager) (
 	var args []interface{}
 	sb := &strings.Builder{}
 	sb.WriteString(`
-SELECT "attnum",
-       "attname",
-       "attacl"
-FROM "pg_catalog"."pg_attribute"
-WHERE "attrelid" = $1
-  AND "attnum" > 0
-  AND NOT "attisdropped"
+SELECT a."attnum",
+       a."attname",
+       a."attacl",
+       c."relowner"
+FROM "pg_catalog"."pg_attribute" a
+         LEFT JOIN "pg_catalog"."pg_class" c ON c."oid" = a."attrelid"
+WHERE a."attrelid" = $1
+  AND a."attnum" > 0
+  AND NOT a."attisdropped"
 `)
 
 	args = append(args, tableID)

@@ -20,6 +20,22 @@ type ProcedureModel struct {
 	ACLs    []string `db:"proacl"`
 }
 
+func (t *ProcedureModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *ProcedureModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *ProcedureModel) AllPrivileges() PrivilegeSet {
+	return Execute
+}
+
+func (t *ProcedureModel) DefaultPrivileges() PrivilegeSet {
+	return Execute
+}
+
 func (c *Client) GetProcedure(ctx context.Context, functionID int64) (*ProcedureModel, error) {
 	ret := &ProcedureModel{}
 

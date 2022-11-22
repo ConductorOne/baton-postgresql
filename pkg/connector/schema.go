@@ -86,12 +86,17 @@ func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, schema.OwnerID, schema.ACLs, postgres.Usage|postgres.Create)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, schema)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newSchemaSyncer(ctx context.Context, c *postgres.Client) *schemaSyncer {

@@ -85,12 +85,17 @@ func (r *functionSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, function.Owner, function.ACLs, postgres.Execute)
+	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	return ret, "", nil, nil
+	ret, err := roleGrantsForPrivileges(ctx, resource, roles, function)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newFunctionSyncer(ctx context.Context, c *postgres.Client) *functionSyncer {

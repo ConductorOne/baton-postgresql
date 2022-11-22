@@ -17,6 +17,22 @@ type LargeObjectModel struct {
 	ACLs    []string `db:"lomacl"`
 }
 
+func (t *LargeObjectModel) GetOwnerID() int64 {
+	return t.OwnerID
+}
+
+func (t *LargeObjectModel) GetACLs() []string {
+	return t.ACLs
+}
+
+func (t *LargeObjectModel) AllPrivileges() PrivilegeSet {
+	return Select | Update
+}
+
+func (t *LargeObjectModel) DefaultPrivileges() PrivilegeSet {
+	return EmptyPrivilegeSet
+}
+
 func (c *Client) ListLargeObjects(ctx context.Context, pager *Pager) ([]*LargeObjectModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("listing large objects")
