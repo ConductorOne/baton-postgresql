@@ -137,7 +137,7 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 			return nil, "", nil, err
 		}
 
-		ret, err := grantsForPrivs(ctx, resource, r.client, db.ACLs, postgres.Create|postgres.Temporary|postgres.Connect)
+		ret, err := grantsForPrivs(ctx, resource, r.client, db.OwnerID, db.ACLs, postgres.Create|postgres.Temporary|postgres.Connect)
 		if err != nil {
 			return nil, "", nil, err
 		}

@@ -12,11 +12,11 @@ import (
 )
 
 type ViewModel struct {
-	ID     int64    `db:"oid"`
-	Name   string   `db:"relname"`
-	Schema string   `db:"nspname"`
-	Owner  int64    `db:"relowner"`
-	ACLs   []string `db:"relacl"`
+	ID      int64    `db:"oid"`
+	Name    string   `db:"relname"`
+	Schema  string   `db:"nspname"`
+	OwnerID int64    `db:"relowner"`
+	ACLs    []string `db:"relacl"`
 }
 
 func (c *Client) GetView(ctx context.Context, viewID int64) (*ViewModel, error) {

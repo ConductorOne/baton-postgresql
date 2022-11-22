@@ -93,6 +93,7 @@ func (r *sequenceSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		ctx,
 		resource,
 		r.client,
+		sequence.OwnerID,
 		sequence.ACLs,
 		postgres.Select|postgres.Update|postgres.Usage,
 	)

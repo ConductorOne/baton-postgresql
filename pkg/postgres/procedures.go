@@ -13,11 +13,11 @@ import (
 )
 
 type ProcedureModel struct {
-	ID     int64    `db:"oid"`
-	Name   string   `db:"proname"`
-	Schema string   `db:"nspname"`
-	Owner  int64    `db:"proowner"`
-	ACLs   []string `db:"proacl"`
+	ID      int64    `db:"oid"`
+	Name    string   `db:"proname"`
+	Schema  string   `db:"nspname"`
+	OwnerID int64    `db:"proowner"`
+	ACLs    []string `db:"proacl"`
 }
 
 func (c *Client) GetProcedure(ctx context.Context, functionID int64) (*ProcedureModel, error) {

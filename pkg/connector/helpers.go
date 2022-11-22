@@ -84,6 +84,7 @@ func grantsForPrivs(
 	ctx context.Context,
 	resource *v2.Resource,
 	client *postgres.Client,
+	resourceOwnerID int64,
 	acls []string,
 	set postgres.PrivilegeSet,
 ) ([]*v2.Grant, error) {
@@ -111,7 +112,6 @@ func grantsForPrivs(
 			},
 		}
 
-		// FIXME: better range helper
 		err = set.Range(func(privilege postgres.PrivilegeSet) (bool, error) {
 			if set.Has(privilege) {
 				hasPriv, hasPrivGrant := acl.Check(privilege)
@@ -119,7 +119,11 @@ func grantsForPrivs(
 				if err != nil {
 					return false, err
 				}
-				if hasPriv || grantee.Superuser {
+
+				hasPriv = hasPriv || grantee.Superuser || grantee.ID == resourceOwnerID
+				hasPrivGrant = hasPrivGrant || grantee.Superuser || grantee.ID == resourceOwnerID
+
+				if hasPriv {
 					ret = append(ret, &v2.Grant{
 						Entitlement: entitlements[0],
 						Principal:   granteeResource,
@@ -127,7 +131,7 @@ func grantsForPrivs(
 					})
 				}
 
-				if hasPrivGrant || grantee.Superuser {
+				if hasPrivGrant {
 					ret = append(ret, &v2.Grant{
 						Entitlement: entitlements[1],
 						Principal:   granteeResource,

@@ -80,12 +80,17 @@ func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
+	table, err := r.client.GetTable(ctx, tID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
 	col, err := r.client.GetColumn(ctx, tID, cID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, col.ACLs, postgres.Insert|postgres.Select|postgres.Update|postgres.References)
+	ret, err := grantsForPrivs(ctx, resource, r.client, table.OwnerID, col.ACLs, postgres.Insert|postgres.Select|postgres.Update|postgres.References)
 	if err != nil {
 		return nil, "", nil, err
 	}

@@ -80,6 +80,7 @@ func (r *largeObjectSyncer) Grants(ctx context.Context, resource *v2.Resource, p
 		ctx,
 		resource,
 		r.client,
+		largeObject.OwnerID,
 		largeObject.ACLs,
 		postgres.Select|postgres.Update,
 	)

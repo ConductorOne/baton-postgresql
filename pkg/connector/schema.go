@@ -81,12 +81,12 @@ func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	function, err := r.client.GetSchema(ctx, rID)
+	schema, err := r.client.GetSchema(ctx, rID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, function.ACLs, postgres.Usage|postgres.Create)
+	ret, err := grantsForPrivs(ctx, resource, r.client, schema.OwnerID, schema.ACLs, postgres.Usage|postgres.Create)
 	if err != nil {
 		return nil, "", nil, err
 	}

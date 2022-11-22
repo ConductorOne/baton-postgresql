@@ -85,7 +85,7 @@ func (r *functionSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, function.ACLs, postgres.Execute)
+	ret, err := grantsForPrivs(ctx, resource, r.client, function.Owner, function.ACLs, postgres.Execute)
 	if err != nil {
 		return nil, "", nil, err
 	}

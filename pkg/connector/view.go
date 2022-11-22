@@ -93,6 +93,7 @@ func (r *viewSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 		ctx,
 		resource,
 		r.client,
+		view.OwnerID,
 		view.ACLs,
 		postgres.Select|postgres.Insert|postgres.Update|postgres.Delete|postgres.Truncate|postgres.Trigger|postgres.References,
 	)

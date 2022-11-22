@@ -80,12 +80,12 @@ func (r *procedureSyncer) Grants(ctx context.Context, resource *v2.Resource, pTo
 		return nil, "", nil, err
 	}
 
-	function, err := r.client.GetProcedure(ctx, rID)
+	procedure, err := r.client.GetProcedure(ctx, rID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := grantsForPrivs(ctx, resource, r.client, function.ACLs, postgres.Execute)
+	ret, err := grantsForPrivs(ctx, resource, r.client, procedure.OwnerID, procedure.ACLs, postgres.Execute)
 	if err != nil {
 		return nil, "", nil, err
 	}

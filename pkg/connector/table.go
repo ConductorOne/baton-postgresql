@@ -95,6 +95,7 @@ func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken 
 		ctx,
 		resource,
 		r.client,
+		table.OwnerID,
 		table.ACLs,
 		postgres.Select|postgres.Insert|postgres.Update|postgres.Delete|postgres.Truncate|postgres.Trigger|postgres.References,
 	)
