@@ -59,21 +59,23 @@ from "pg_catalog"."pg_largeobject_metadata"
 	return ret, nextPageToken, nil
 }
 
-func (c *Client) GetLargeObject(ctx context.Context, schemaID int64) (*LargeObjectModel, error) {
+func (c *Client) GetLargeObject(ctx context.Context, largeObjectID int64) (*LargeObjectModel, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("getting schema")
+	l.Info("getting large object")
 
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`SELECT 	"oid"::int,
-								"nspname",  
-								"nspowner",
-								"nspacl"
-								from "pg_catalog"."pg_namespace" WHERE oid=$1`)
-	args = append(args, schemaID)
+	sb.WriteString(`
+SELECT "oid"::int,
+       "lomowner",
+       "lomacl"
+from "pg_catalog"."pg_largeobject_metadata"
+WHERE oid=$1
+`)
+	args = append(args, largeObjectID)
 
 	var ret LargeObjectModel
-	err := pgxscan.Get(ctx, c.db, &ret, sb.String(), args...)
+	err := pgxscan.Get(ctx, c.db, &ret, sb.String(), largeObjectID)
 	if err != nil {
 		return nil, err
 	}
