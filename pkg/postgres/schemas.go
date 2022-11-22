@@ -19,6 +19,25 @@ type SchemaModel struct {
 	ACLs    []string `db:"nspacl"`
 }
 
+func (c *Client) GetSchema(ctx context.Context, schemaID int64) (*SchemaModel, error) {
+	ret := &SchemaModel{}
+
+	q := `
+SELECT "oid"::int, "nspname",
+       "nspowner",
+       "nspacl"
+FROM "pg_catalog"."pg_namespace"
+WHERE "oid" = $1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, schemaID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListSchemas(ctx context.Context, pager *Pager) ([]*SchemaModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("listing schemas")
@@ -29,11 +48,12 @@ func (c *Client) ListSchemas(ctx context.Context, pager *Pager) ([]*SchemaModel,
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`SELECT 	"oid"::int,
-								"nspname",  
-								"nspowner",
-								"nspacl"
-								from "pg_catalog"."pg_namespace" `)
+	sb.WriteString(`
+SELECT "oid"::int, "nspname",
+       "nspowner",
+       "nspacl"
+from "pg_catalog"."pg_namespace"
+`)
 	if len(c.schemaFilter) > 0 {
 		sb.WriteString("WHERE ")
 		for ii, s := range c.schemaFilter {

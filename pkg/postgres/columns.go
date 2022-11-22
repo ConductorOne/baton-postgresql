@@ -19,6 +19,26 @@ type ColumnModel struct {
 	ACLs      []string `db:"attacl"`
 }
 
+func (c *Client) GetColumn(ctx context.Context, tableID int64, columnID int64) (*ColumnModel, error) {
+	ret := &ColumnModel{}
+
+	q := `
+SELECT "attnum",
+       "attname",
+       "attacl"
+FROM "pg_catalog"."pg_attribute"
+WHERE "attrelid" = $1
+  AND "attnum" = $2
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, tableID, columnID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListColumns(ctx context.Context, tableID int64, pager *Pager) ([]*ColumnModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("listing columns for table", zap.Int64("table_id", tableID))

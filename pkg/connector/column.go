@@ -66,11 +66,31 @@ func (r *columnSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 }
 
 func (r *columnSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	ens, err := entitlementsForPrivs(ctx, resource, postgres.Insert|postgres.Select|postgres.Update|postgres.References)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ens, "", nil, nil
 }
 
 func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	tID, cID, err := parseColumnID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	col, err := r.client.GetColumn(ctx, tID, cID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := grantsForPrivs(ctx, resource, r.client, col.ACLs, postgres.Insert|postgres.Select|postgres.Update|postgres.References)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, "", nil, nil
 }
 
 func newColumnSyncer(ctx context.Context, c *postgres.Client) *columnSyncer {

@@ -20,6 +20,26 @@ type ProcedureModel struct {
 	ACLs   []string `db:"proacl"`
 }
 
+func (c *Client) GetProcedure(ctx context.Context, functionID int64) (*ProcedureModel, error) {
+	ret := &ProcedureModel{}
+
+	q := `
+SELECT a."oid"::int, a."proname",
+       n."nspname",
+       a."proowner"::int, a."proacl"
+FROM "pg_catalog"."pg_proc" a
+         LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
+WHERE a."oid" = $1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, functionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListProcedures(ctx context.Context, schemaID int64, pager *Pager) ([]*ProcedureModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("listing procedures for schema", zap.Int64("schema_id", schemaID))

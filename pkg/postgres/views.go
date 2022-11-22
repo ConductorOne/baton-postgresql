@@ -15,8 +15,26 @@ type ViewModel struct {
 	ID     int64    `db:"oid"`
 	Name   string   `db:"relname"`
 	Schema string   `db:"nspname"`
-	Owner  string   `db:"relowner"`
+	Owner  int64    `db:"relowner"`
 	ACLs   []string `db:"relacl"`
+}
+
+func (c *Client) GetView(ctx context.Context, viewID int64) (*ViewModel, error) {
+	ret := &ViewModel{}
+
+	q := `
+SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
+FROM pg_class c
+         LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
+WHERE c."oid" = $1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, viewID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
 }
 
 func (c *Client) ListViews(ctx context.Context, schemaID int64, pager *Pager) ([]*ViewModel, string, error) {

@@ -9,30 +9,27 @@ import (
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
-type FunctionModel struct {
+type SequenceModel struct {
 	ID     int64    `db:"oid"`
-	Name   string   `db:"proname"`
+	Name   string   `db:"relname"`
 	Schema string   `db:"nspname"`
-	Owner  int64    `db:"proowner"`
-	ACLs   []string `db:"proacl"`
+	Owner  int64    `db:"relowner"`
+	ACLs   []string `db:"relacl"`
 }
 
-func (c *Client) GetFunction(ctx context.Context, functionID int64) (*FunctionModel, error) {
-	ret := &FunctionModel{}
+func (c *Client) GetSequence(ctx context.Context, sequenceID int64) (*SequenceModel, error) {
+	ret := &SequenceModel{}
 
 	q := `
-SELECT a."oid"::int, a."proname",
-       n."nspname",
-       a."proowner"::int, a."proacl"
-FROM "pg_catalog"."pg_proc" a
-         LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
-WHERE a."oid" = $1
+SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
+FROM pg_class c
+         LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
+WHERE c."oid" = $1
 `
 
-	err := pgxscan.Get(ctx, c.db, ret, q, functionID)
+	err := pgxscan.Get(ctx, c.db, ret, q, sequenceID)
 	if err != nil {
 		return nil, err
 	}
@@ -40,9 +37,9 @@ WHERE a."oid" = $1
 	return ret, nil
 }
 
-func (c *Client) ListFunctions(ctx context.Context, schemaID int64, pager *Pager) ([]*FunctionModel, string, error) {
+func (c *Client) ListSequences(ctx context.Context, schemaID int64, pager *Pager) ([]*SequenceModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing functions for schema", zap.Int64("schema_id", schemaID))
+	l.Info("listing sequences")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {
@@ -51,14 +48,13 @@ func (c *Client) ListFunctions(ctx context.Context, schemaID int64, pager *Pager
 	var args []interface{}
 	sb := &strings.Builder{}
 	sb.WriteString(`
-SELECT a."oid"::int, a."proname",
-       n."nspname",
-       a."proowner"::int, a."proacl"
-FROM "pg_catalog"."pg_proc" a
-         LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
-WHERE a."prokind" = 'f'
-  AND a."pronamespace" = $1
+SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
+FROM pg_class c
+         LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
+WHERE n."oid" = $1
+  AND (c."relkind" = 'S')
 `)
+
 	args = append(args, schemaID)
 	sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
@@ -67,7 +63,7 @@ WHERE a."prokind" = 'f'
 		args = append(args, offset)
 	}
 
-	var ret []*FunctionModel
+	var ret []*SequenceModel
 	err = pgxscan.Select(ctx, c.db, &ret, sb.String(), args...)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

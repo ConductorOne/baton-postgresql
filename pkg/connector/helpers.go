@@ -28,6 +28,25 @@ func parseObjectID(id string) (int64, error) {
 	return strconv.ParseInt(parts[1], 10, 64)
 }
 
+func parseColumnID(id string) (int64, int64, error) {
+	parts := strings.SplitN(id, ":", 3)
+	if len(parts) != 3 {
+		return 0, 0, fmt.Errorf("invalid column ID %s", id)
+	}
+
+	tID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	colID, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return tID, colID, nil
+}
+
 func parsePageToken(i string, resourceID *v2.ResourceId) (*pagination.Bag, error) {
 	b := &pagination.Bag{}
 	err := b.Unmarshal(i)
@@ -70,14 +89,13 @@ func grantsForPrivs(
 ) ([]*v2.Grant, error) {
 	var ret []*v2.Grant
 
-	for _, pgAcl := range acls {
-		acl, err := postgres.NewAcl(pgAcl)
+	for _, pgACL := range acls {
+		acl, err := postgres.NewAcl(pgACL)
 		if err != nil {
 			return nil, err
 		}
 
 		if acl.Grantee() == "" {
-			fmt.Println("FIXME: PUBLIC GRANTS SKIPPING", pgAcl)
 			continue
 		}
 
@@ -94,7 +112,7 @@ func grantsForPrivs(
 		}
 
 		// FIXME: better range helper
-		err = postgres.PrivilegeSet(0).Range(func(privilege postgres.PrivilegeSet) (bool, error) {
+		err = set.Range(func(privilege postgres.PrivilegeSet) (bool, error) {
 			if set.Has(privilege) {
 				hasPriv, hasPrivGrant := acl.Check(privilege)
 				entitlements, err := entitlementsForPrivs(ctx, resource, privilege)

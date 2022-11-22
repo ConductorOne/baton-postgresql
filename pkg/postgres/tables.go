@@ -19,6 +19,24 @@ type TableModel struct {
 	ACLs   []string `db:"relacl"`
 }
 
+func (c *Client) GetTable(ctx context.Context, tableID int64) (*TableModel, error) {
+	ret := &TableModel{}
+
+	q := `
+SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
+FROM pg_class c
+         LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
+WHERE c."oid" = $1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, tableID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListTables(ctx context.Context, schemaID int64, pager *Pager) ([]*TableModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("listing tables")

@@ -27,23 +27,8 @@ func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.Res
 		newProcedureSyncer(ctx, o.client),
 		newLargeObjectSyncer(ctx, o.client),
 		newDatabaseSyncer(ctx, o.client),
+		newSequenceSyncer(ctx, o.client),
 	}
-}
-
-func (c *Postgresql) ListResourceTypes(ctx context.Context, request *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	return &v2.ResourceTypesServiceListResourceTypesResponse{
-		List: []*v2.ResourceType{
-			databaseResourceType,
-			roleResourceType,
-			schemaResourceType,
-			tableResourceType,
-			viewResourceType,
-			columnResourceType,
-			functionResourceType,
-			procedureResourceType,
-			largeObjectResourceType,
-		},
-	}, nil
 }
 
 func (c *Postgresql) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {

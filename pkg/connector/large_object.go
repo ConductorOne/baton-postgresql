@@ -66,7 +66,28 @@ func (r *largeObjectSyncer) Entitlements(ctx context.Context, resource *v2.Resou
 }
 
 func (r *largeObjectSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	rID, err := parseObjectID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	largeObject, err := r.client.GetLargeObject(ctx, rID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := grantsForPrivs(
+		ctx,
+		resource,
+		r.client,
+		largeObject.ACLs,
+		postgres.Select|postgres.Update,
+	)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, "", nil, nil
 }
 
 func newLargeObjectSyncer(ctx context.Context, c *postgres.Client) *largeObjectSyncer {

@@ -50,6 +50,7 @@ func (r *schemaSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 		annos.Append(&v2.ChildResourceType{ResourceTypeId: viewResourceType.Id})
 		annos.Append(&v2.ChildResourceType{ResourceTypeId: functionResourceType.Id})
 		annos.Append(&v2.ChildResourceType{ResourceTypeId: procedureResourceType.Id})
+		annos.Append(&v2.ChildResourceType{ResourceTypeId: sequenceResourceType.Id})
 
 		ret = append(ret, &v2.Resource{
 			DisplayName: o.Name,
@@ -75,7 +76,22 @@ func (r *schemaSyncer) Entitlements(ctx context.Context, resource *v2.Resource, 
 }
 
 func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	rID, err := parseObjectID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	function, err := r.client.GetSchema(ctx, rID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := grantsForPrivs(ctx, resource, r.client, function.ACLs, postgres.Usage|postgres.Create)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, "", nil, nil
 }
 
 func newSchemaSyncer(ctx context.Context, c *postgres.Client) *schemaSyncer {

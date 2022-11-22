@@ -104,6 +104,16 @@ func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 		Slug:        "bypass rls",
 	})
 
+	ens = append(ens, &v2.Entitlement{
+		Resource:    resource,
+		Id:          formatEntitlementID(resource, "replication", false),
+		DisplayName: "Replication",
+		Description: "Can initiate replication connections, and create and drop replication slots",
+		GrantableTo: []*v2.ResourceType{roleResourceType},
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+		Slug:        "bypass rls",
+	})
+
 	return ens, "", nil, nil
 }
 
@@ -201,6 +211,18 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 
 			if r.BypassRowSecurity {
 				eID := formatEntitlementID(resource, "bypass-rls", false)
+				ret = append(ret, &v2.Grant{
+					Entitlement: &v2.Entitlement{
+						Id:       eID,
+						Resource: resource,
+					},
+					Principal: principal,
+					Id:        formatGrantID(eID, principal.Id),
+				})
+			}
+
+			if r.Replication {
+				eID := formatEntitlementID(resource, "replication", false)
 				ret = append(ret, &v2.Grant{
 					Entitlement: &v2.Entitlement{
 						Id:       eID,

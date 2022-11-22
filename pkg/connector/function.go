@@ -75,7 +75,22 @@ func (r *functionSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 }
 
 func (r *functionSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	rID, err := parseObjectID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	function, err := r.client.GetFunction(ctx, rID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := grantsForPrivs(ctx, resource, r.client, function.ACLs, postgres.Execute)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ret, "", nil, nil
 }
 
 func newFunctionSyncer(ctx context.Context, c *postgres.Client) *functionSyncer {
