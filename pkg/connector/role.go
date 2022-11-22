@@ -45,11 +45,18 @@ func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, 
 
 		p := make(map[string]interface{})
 
-		gt, err := sdk.NewGroupTrait(nil, p)
+		hasMembers, err := r.client.RoleHasMembers(ctx, o.ID)
 		if err != nil {
 			return nil, "", nil, err
 		}
-		annos.Append(gt)
+
+		if hasMembers {
+			gt, err := sdk.NewGroupTrait(nil, p)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			annos.Append(gt)
+		}
 
 		ut, err := sdk.NewUserTrait("", v2.UserTrait_Status_STATUS_ENABLED, nil, nil)
 		if err != nil {
@@ -72,11 +79,90 @@ func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, 
 }
 
 func (r *roleSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	var ret []*v2.Entitlement
+
+	annos := annotations.Annotations(resource.Annotations)
+
+	gt := &v2.GroupTrait{}
+	ok, err := annos.Pick(gt)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	if ok {
+		ret = append(ret, &v2.Entitlement{
+			Resource:    resource,
+			Id:          formatEntitlementID(resource, "member", false),
+			DisplayName: "Member",
+			Description: fmt.Sprintf("Is assigned the %s role", resource.DisplayName),
+			GrantableTo: []*v2.ResourceType{roleResourceType},
+			Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+			Slug:        "member",
+		})
+		ret = append(ret, &v2.Entitlement{
+			Resource:    resource,
+			Id:          formatEntitlementID(resource, "admin", false),
+			DisplayName: "Admin",
+			Description: fmt.Sprintf("Can grant the %s role to other roles", resource.DisplayName),
+			GrantableTo: []*v2.ResourceType{roleResourceType},
+			Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+			Slug:        "admin",
+		})
+	}
+
+	return ret, "", nil, nil
 }
 
 func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	var ret []*v2.Grant
+
+	annos := annotations.Annotations(resource.Annotations)
+	gt := &v2.GroupTrait{}
+	ok, err := annos.Pick(gt)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	// Roles only have entitlements if they are a group
+	if !ok {
+		return nil, "", nil, nil
+	}
+
+	roleID, err := parseObjectID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	roleMembers, nextPageToken, err := r.client.ListRoleMembers(ctx, roleID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	var eID string
+	for _, m := range roleMembers {
+		if m.IsRoleAdmin {
+			eID = formatEntitlementID(resource, "admin", false)
+		} else {
+			eID = formatEntitlementID(resource, "member", false)
+		}
+
+		principal := &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: roleResourceType.Id,
+				Resource:     formatObjectID(roleResourceType.Id, m.ID),
+			},
+		}
+		ret = append(ret, &v2.Grant{
+			Id: formatGrantID(eID, principal.Id),
+			Entitlement: &v2.Entitlement{
+				Id:       eID,
+				Resource: resource,
+			},
+			Principal: principal,
+		})
+	}
+
+	return ret, nextPageToken, nil, nil
 }
 
 func newRoleSyncer(ctx context.Context, c *postgres.Client) *roleSyncer {

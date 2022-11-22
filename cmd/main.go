@@ -36,6 +36,12 @@ func main() {
 		"The connection string for the PostgreSQL database ($BATON_DSN)\nexample: postgres://username:password@localhost:5432/database_name",
 	)
 
+	cmd.PersistentFlags().StringSlice(
+		"schemas",
+		[]string{"public"},
+		"The schemas to include in the sync. This defaults to 'public' only.",
+	)
+
 	err = cmd.Execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -46,7 +52,7 @@ func main() {
 func getConnector(ctx context.Context, cfg *config) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
-	cb, err := connector.New(ctx, cfg.Dsn)
+	cb, err := connector.New(ctx, cfg.Dsn, cfg.Schemas)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

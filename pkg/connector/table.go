@@ -50,7 +50,7 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 	var ret []*v2.Resource
 	for _, o := range tables {
 		var annos annotations.Annotations
-		
+
 		annos.Append(&v2.ChildResourceType{ResourceTypeId: columnResourceType.Id})
 
 		ret = append(ret, &v2.Resource{
@@ -68,7 +68,12 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 }
 
 func (r *tableSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	ens, err := entitlementsForPrivs(ctx, resource, postgres.Select|postgres.Insert|postgres.Update|postgres.Delete|postgres.Truncate|postgres.Trigger|postgres.References)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ens, "", nil, nil
 }
 
 func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {

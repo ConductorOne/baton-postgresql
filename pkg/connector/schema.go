@@ -66,7 +66,12 @@ func (r *schemaSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 }
 
 func (r *schemaSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+	ens, err := entitlementsForPrivs(ctx, resource, postgres.Usage|postgres.Create)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return ens, "", nil, nil
 }
 
 func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {

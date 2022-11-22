@@ -44,6 +44,41 @@ func (ps PrivilegeSet) String() string {
 	return ""
 }
 
+func (ps PrivilegeSet) Name() string {
+	switch ps {
+	case Select:
+		return "SELECT"
+	case Insert:
+		return "INSERT"
+	case Update:
+		return "UPDATE"
+	case Delete:
+		return "DELETE"
+	case Truncate:
+		return "TRUNCATE"
+	case References:
+		return "REFERENCES"
+	case Trigger:
+		return "TRIGGER"
+	case Create:
+		return "CREATE"
+	case Connect:
+		return "CONNECT"
+	case Temporary:
+		return "TEMPORARY"
+	case Execute:
+		return "EXECUTE"
+	case Usage:
+		return "USAGE"
+	case Set:
+		return "SET"
+	case AlterSystem:
+		return "ALTER SYSTEM"
+	}
+
+	return ""
+}
+
 func PrivilegeSetFromRune(s rune) PrivilegeSet {
 	for key := Insert; key < Terminator; key <<= 1 {
 		if string(s) == key.String() {
@@ -79,11 +114,33 @@ func (ps PrivilegeSet) Has(priv PrivilegeSet) bool {
 	return ps&priv != 0
 }
 
+func (a PrivilegeSet) Range(f func(p PrivilegeSet) (bool, error)) error {
+	for key := Insert; key < Terminator; key <<= 1 {
+		ok, err := f(key)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			break
+		}
+	}
+
+	return nil
+}
+
 type Acl struct {
 	privs          PrivilegeSet
 	privsWithGrant PrivilegeSet
 	grantor        string
 	grantee        string
+}
+
+func (a *Acl) Check(p PrivilegeSet) (bool, bool) {
+	return a.privs&p == p, a.privsWithGrant&p == p
+}
+
+func (a *Acl) Grantee() string {
+	return a.grantee
 }
 
 func (a *Acl) String() string {

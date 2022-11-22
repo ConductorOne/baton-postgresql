@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -20,7 +21,7 @@ type SchemaModel struct {
 
 func (c *Client) ListSchemas(ctx context.Context, pager *Pager) ([]*SchemaModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing roles")
+	l.Info("listing schemas")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {
@@ -33,10 +34,21 @@ func (c *Client) ListSchemas(ctx context.Context, pager *Pager) ([]*SchemaModel,
 								"nspowner",
 								"nspacl"
 								from "pg_catalog"."pg_namespace" `)
-	sb.WriteString("LIMIT $1 ")
+	if len(c.schemaFilter) > 0 {
+		sb.WriteString("WHERE ")
+		for ii, s := range c.schemaFilter {
+			if ii != 0 {
+				sb.WriteString("OR ")
+			}
+			sb.WriteString(fmt.Sprintf(`"nspname" = $%d `, len(args)+1))
+			args = append(args, s)
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("LIMIT $%d ", len(args)+1))
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $2")
+		sb.WriteString(fmt.Sprintf("OFFSET $%d ", len(args)+1))
 		args = append(args, offset)
 	}
 

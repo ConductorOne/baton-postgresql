@@ -216,3 +216,142 @@ func TestNewAcl(t *testing.T) {
 		})
 	}
 }
+
+func TestAcl_Check(t *testing.T) {
+	type fields struct {
+		privs          PrivilegeSet
+		privsWithGrant PrivilegeSet
+		grantor        string
+		grantee        string
+	}
+	type args struct {
+		p PrivilegeSet
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   bool
+		want1  bool
+	}{
+		{
+			"has single privilege",
+			fields{
+				privs: Select,
+			},
+			args{
+				Select,
+			},
+			true,
+			false,
+		},
+		{
+			"has single privilege with grant",
+			fields{
+				privs:          Select,
+				privsWithGrant: Select,
+			},
+			args{
+				Select,
+			},
+			true,
+			true,
+		},
+		{
+			"has single privilege and another with grant",
+			fields{
+				privs:          Select | Insert,
+				privsWithGrant: Insert,
+			},
+			args{
+				Select,
+			},
+			true,
+			false,
+		},
+		{
+			"has single privilege and another with grant",
+			fields{
+				privs:          Select | Insert,
+				privsWithGrant: Insert,
+			},
+			args{
+				Select,
+			},
+			true,
+			false,
+		},
+		{
+			"doesn't have any privs",
+			fields{},
+			args{
+				Select,
+			},
+			false,
+			false,
+		},
+		{
+			"checking select but has insert",
+			fields{
+				privs: Insert,
+			},
+			args{
+				Select,
+			},
+			false,
+			false,
+		},
+		{
+			"checking select but has insert",
+			fields{
+				privs: Insert,
+			},
+			args{
+				Select,
+			},
+			false,
+			false,
+		},
+		{
+			"checking select and insert but only select with grant",
+			fields{
+				privs:          Select | Insert,
+				privsWithGrant: Select,
+			},
+			args{
+				Select | Insert,
+			},
+			true,
+			false,
+		},
+		{
+			"checking select and insert and has both",
+			fields{
+				privs:          Select | Insert,
+				privsWithGrant: Select | Insert,
+			},
+			args{
+				Select | Insert,
+			},
+			true,
+			true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Acl{
+				privs:          tt.fields.privs,
+				privsWithGrant: tt.fields.privsWithGrant,
+				grantor:        tt.fields.grantor,
+				grantee:        tt.fields.grantee,
+			}
+			got, got1 := a.Check(tt.args.p)
+			if got != tt.want {
+				t.Errorf("Check() got = %v, want %v", got, tt.want)
+			}
+			if got1 != tt.want1 {
+				t.Errorf("Check() got1 = %v, want %v", got1, tt.want1)
+			}
+		})
+	}
+}

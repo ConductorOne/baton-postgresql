@@ -18,6 +18,26 @@ type DatabaseModel struct {
 	ACLs    []string `db:"datacl"`
 }
 
+func (c *Client) GetDatabase(ctx context.Context, dbID int64) (*DatabaseModel, error) {
+	ret := &DatabaseModel{}
+
+	q := `
+SELECT "oid"::int,
+       "datname",
+       "datdba",
+       "datacl"
+from "pg_catalog"."pg_database"
+WHERE "oid"=$1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListDatabases(ctx context.Context, pager *Pager) ([]*DatabaseModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("listing databases")
