@@ -1,0 +1,65 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strconv"
+	"strings"
+
+	"github.com/georgysavva/scany/pgxscan"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+)
+
+type FunctionModel struct {
+	ID     int64    `db:"oid"`
+	Name   string   `db:"proname"`
+	Schema string   `db:"nspname"`
+	Owner  int64    `db:"proowner"`
+	ACLs   []string `db:"proacl"`
+}
+
+func (c *Client) ListFunctions(ctx context.Context, schemaID int64, pager *Pager) ([]*FunctionModel, string, error) {
+	l := ctxzap.Extract(ctx)
+	l.Info("listing functions for schema", zap.Int64("schema_id", schemaID))
+
+	offset, limit, err := pager.Parse()
+	if err != nil {
+		return nil, "", err
+	}
+	var args []interface{}
+	sb := &strings.Builder{}
+	sb.WriteString(`
+select a."oid"::int, a."proname", n."nspname", a."proowner"::int, a."proacl"
+from "pg_catalog"."pg_proc" a
+         LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
+where a."prokind" = 'f'
+  and a."pronamespace" = $1
+`)
+	args = append(args, schemaID)
+	sb.WriteString("LIMIT $2 ")
+	args = append(args, limit+1)
+	if offset > 0 {
+		sb.WriteString("OFFSET $3")
+		args = append(args, offset)
+	}
+
+	var ret []*FunctionModel
+	err = pgxscan.Select(ctx, c.db, &ret, sb.String(), args...)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+
+	var nextPageToken string
+	if len(ret) > limit {
+		offset += limit
+		nextPageToken = strconv.Itoa(offset)
+		ret = ret[:limit]
+	}
+
+	return ret, nextPageToken, nil
+}
