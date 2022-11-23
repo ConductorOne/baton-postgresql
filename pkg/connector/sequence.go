@@ -94,7 +94,7 @@ func (r *sequenceSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, sequence)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, sequence)
 	if err != nil {
 		return nil, "", nil, err
 	}

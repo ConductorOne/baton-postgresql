@@ -135,30 +135,30 @@ func (a PrivilegeSet) Range(f func(p PrivilegeSet) (bool, error)) error {
 	return nil
 }
 
-type Acl struct {
+type ACL struct {
 	privs          PrivilegeSet
 	privsWithGrant PrivilegeSet
 	grantor        string
 	grantee        string
 }
 
-func (a *Acl) Privileges() PrivilegeSet {
+func (a *ACL) Privileges() PrivilegeSet {
 	return a.privs
 }
 
-func (a *Acl) GrantPrivileges() PrivilegeSet {
+func (a *ACL) GrantPrivileges() PrivilegeSet {
 	return a.privsWithGrant
 }
 
-func (a *Acl) Check(p PrivilegeSet) (bool, bool) {
+func (a *ACL) Check(p PrivilegeSet) (bool, bool) {
 	return a.privs&p == p, a.privsWithGrant&p == p
 }
 
-func (a *Acl) Grantee() string {
+func (a *ACL) Grantee() string {
 	return a.grantee
 }
 
-func (a *Acl) String() string {
+func (a *ACL) String() string {
 	if a.privs == EmptyPrivilegeSet {
 		return ""
 	}
@@ -184,8 +184,8 @@ func (a *Acl) String() string {
 	return sb.String()
 }
 
-func NewAcl(acl string) (*Acl, error) {
-	ret := &Acl{}
+func NewAcl(acl string) (*ACL, error) {
+	ret := &ACL{}
 
 	granteeParts := strings.SplitN(acl, "=", 2)
 	if len(granteeParts) != 2 {
@@ -219,8 +219,8 @@ func NewAcl(acl string) (*Acl, error) {
 	return ret, nil
 }
 
-func NewAclFromPrivilegeSets(privs PrivilegeSet, privsWithGrant PrivilegeSet) *Acl {
-	return &Acl{
+func NewAclFromPrivilegeSets(privs PrivilegeSet, privsWithGrant PrivilegeSet) *ACL {
+	return &ACL{
 		privs:          privs,
 		privsWithGrant: privsWithGrant,
 	}

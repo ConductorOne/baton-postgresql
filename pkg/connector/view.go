@@ -94,7 +94,7 @@ func (r *viewSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, view)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, view)
 	if err != nil {
 		return nil, "", nil, err
 	}

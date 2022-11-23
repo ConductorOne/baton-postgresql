@@ -91,7 +91,7 @@ func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, col)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, col)
 	if err != nil {
 		return nil, "", nil, err
 	}

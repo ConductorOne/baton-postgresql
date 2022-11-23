@@ -96,7 +96,7 @@ func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken 
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, table)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, table)
 	if err != nil {
 		return nil, "", nil, err
 	}

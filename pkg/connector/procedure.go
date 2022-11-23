@@ -90,7 +90,7 @@ func (r *procedureSyncer) Grants(ctx context.Context, resource *v2.Resource, pTo
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, procedure)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, procedure)
 	if err != nil {
 		return nil, "", nil, err
 	}

@@ -81,7 +81,7 @@ func (r *largeObjectSyncer) Grants(ctx context.Context, resource *v2.Resource, p
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, largeObject)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, largeObject)
 	if err != nil {
 		return nil, "", nil, err
 	}

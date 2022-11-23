@@ -140,7 +140,7 @@ func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 
 	var eID string
 	for _, m := range roleMembers {
-		if m.IsRoleAdmin {
+		if m.IsRoleAdmin() {
 			eID = formatEntitlementID(resource, "admin", false)
 		} else {
 			eID = formatEntitlementID(resource, "member", false)

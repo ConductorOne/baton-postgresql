@@ -152,7 +152,7 @@ func TestAcl_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := &Acl{
+			a := &ACL{
 				privs:          tt.fields.privs,
 				privsWithGrant: tt.fields.privsWithGrant,
 				grantor:        tt.fields.grantor,
@@ -172,7 +172,7 @@ func TestNewAcl(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *Acl
+		want    *ACL
 		wantErr bool
 	}{
 		{
@@ -184,7 +184,7 @@ func TestNewAcl(t *testing.T) {
 		{
 			"foo is granted select by bar",
 			args{"foo=r/bar"},
-			&Acl{
+			&ACL{
 				grantee: "foo",
 				grantor: "bar",
 				privs:   Select,
@@ -194,7 +194,7 @@ func TestNewAcl(t *testing.T) {
 		{
 			"foo is granted select, insert with grant, create with grant, delete by bar",
 			args{"foo=ra*C*d/bar"},
-			&Acl{
+			&ACL{
 				grantee:        "foo",
 				grantor:        "bar",
 				privs:          Select | Insert | Create | Delete,
@@ -339,7 +339,7 @@ func TestAcl_Check(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := &Acl{
+			a := &ACL{
 				privs:          tt.fields.privs,
 				privsWithGrant: tt.fields.privsWithGrant,
 				grantor:        tt.fields.grantor,

@@ -91,7 +91,7 @@ func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, schema)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, schema)
 	if err != nil {
 		return nil, "", nil, err
 	}

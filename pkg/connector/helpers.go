@@ -8,7 +8,6 @@ import (
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 )
 
 func formatObjectID(resourceTypeID string, id int64) string {
@@ -45,23 +44,6 @@ func parseColumnID(id string) (int64, int64, error) {
 	}
 
 	return tID, colID, nil
-}
-
-func parsePageToken(i string, resourceID *v2.ResourceId) (*pagination.Bag, error) {
-	b := &pagination.Bag{}
-	err := b.Unmarshal(i)
-	if err != nil {
-		return nil, err
-	}
-
-	if b.Current() == nil {
-		b.Push(pagination.PageState{
-			ResourceTypeID: resourceID.ResourceType,
-			ResourceID:     resourceID.Resource,
-		})
-	}
-
-	return b, nil
 }
 
 func formatGrantID(entitlementID string, principalId *v2.ResourceId) string {
@@ -120,17 +102,48 @@ func grantsForPrivilegeSet(
 	return ret, nil
 }
 
+func getInheritedACLs(
+	ctx context.Context,
+	client *postgres.Client,
+	role *postgres.RoleModel,
+	aclsByRole map[string][]*postgres.ACL,
+) ([]*postgres.ACL, error) {
+	var ret []*postgres.ACL
+
+	if !role.Inherit {
+		return nil, nil
+	}
+
+	for _, pID := range role.MemberOf {
+		pRole, err := client.GetRole(ctx, pID)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, aclsByRole[pRole.Name]...)
+
+		parentACLs, err := getInheritedACLs(ctx, client, pRole, aclsByRole)
+		if err != nil {
+			return nil, err
+		}
+
+		ret = append(ret, parentACLs...)
+	}
+
+	return ret, nil
+}
+
 func roleGrantsForPrivileges(
 	ctx context.Context,
+	client *postgres.Client,
 	resource *v2.Resource,
 	roles []*postgres.RoleModel,
 	aclObj postgres.ACLResource,
 ) ([]*v2.Grant, error) {
 	var ret []*v2.Grant
 
-	aclByRole := make(map[string][]*postgres.Acl)
+	aclsByRole := make(map[string][]*postgres.ACL)
 
-	var defaultACL *postgres.Acl
+	var defaultACL *postgres.ACL
 	for _, pgACL := range aclObj.GetACLs() {
 		acl, err := postgres.NewAcl(pgACL)
 		if err != nil {
@@ -143,16 +156,15 @@ func roleGrantsForPrivileges(
 			continue
 		}
 
-		roleACLs, ok := aclByRole[grantee]
+		roleACLs, ok := aclsByRole[grantee]
 		if ok {
-			aclByRole[grantee] = append(roleACLs, acl)
+			aclsByRole[grantee] = append(roleACLs, acl)
 		} else {
-			aclByRole[grantee] = []*postgres.Acl{acl}
+			aclsByRole[grantee] = []*postgres.ACL{acl}
 		}
 	}
 
 	if defaultACL == nil {
-		fmt.Println("no PUBLIC acl specified - using object defaults", resource.Id)
 		defaultACL = postgres.NewAclFromPrivilegeSets(aclObj.DefaultPrivileges(), postgres.EmptyPrivilegeSet)
 	}
 
@@ -160,8 +172,16 @@ func roleGrantsForPrivileges(
 		privs := defaultACL.Privileges()
 		grantPrivs := defaultACL.GrantPrivileges()
 
-		roleACLs := aclByRole[r.Name]
+		roleACLs := aclsByRole[r.Name]
 
+		inheritedACLs, err := getInheritedACLs(ctx, client, r, aclsByRole)
+		if err != nil {
+			return nil, err
+		}
+
+		roleACLs = append(roleACLs, inheritedACLs...)
+
+		// If the role is a super user or the owner of the object, they get all privileges
 		if r.Superuser || r.ID == aclObj.GetOwnerID() {
 			privs = aclObj.AllPrivileges()
 			grantPrivs = aclObj.AllPrivileges()

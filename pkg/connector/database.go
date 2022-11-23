@@ -133,7 +133,7 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, resource, roles, db)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, db)
 	if err != nil {
 		return nil, "", nil, err
 	}

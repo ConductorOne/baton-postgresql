@@ -13,17 +13,26 @@ import (
 )
 
 type RoleModel struct {
-	ID                int64  `db:"oid"`
-	Name              string `db:"rolname"`
-	Superuser         bool   `db:"rolsuper"`
-	Inherit           bool   `db:"rolinherit"`
-	CreateRole        bool   `db:"rolcreaterole"`
-	CreateDb          bool   `db:"rolcreatedb"`
-	CanLogin          bool   `db:"rolcanlogin"`
-	Replication       bool   `db:"rolreplication"`
-	ConnectionLimit   int    `db:"rolconnlimit"`
-	BypassRowSecurity bool   `db:"rolbypassrls"`
-	IsRoleAdmin       bool   `db:"admin_option"`
+	ID                int64   `db:"oid"`
+	Name              string  `db:"rolname"`
+	Superuser         bool    `db:"rolsuper"`
+	Inherit           bool    `db:"rolinherit"`
+	CreateRole        bool    `db:"rolcreaterole"`
+	CreateDb          bool    `db:"rolcreatedb"`
+	CanLogin          bool    `db:"rolcanlogin"`
+	Replication       bool    `db:"rolreplication"`
+	ConnectionLimit   int     `db:"rolconnlimit"`
+	BypassRowSecurity bool    `db:"rolbypassrls"`
+	RoleAdmin         *bool   `db:"admin_option"`
+	MemberOf          []int64 `db:"member_of"`
+}
+
+func (r *RoleModel) IsRoleAdmin() bool {
+	if r.RoleAdmin == nil {
+		return false
+	}
+
+	return *r.RoleAdmin
 }
 
 func (c *Client) RoleHasMembers(ctx context.Context, roleID int64) (bool, error) {
@@ -40,18 +49,25 @@ func (c *Client) RoleHasMembers(ctx context.Context, roleID int64) (bool, error)
 
 func (c *Client) GetRoleByName(ctx context.Context, roleID string) (*RoleModel, error) {
 	q := `
-SELECT "rolname",
-       "rolsuper",
-       "rolinherit",
-       "rolcreaterole",
-       "rolcreatedb",
-       "rolcanlogin",
-       "rolreplication",
-       "rolconnlimit",
-       "rolbypassrls",
-       "oid"::int
-FROM "pg_catalog"."pg_roles"
-WHERE "rolname" = $1
+SELECT r."rolname",
+       r."rolsuper",
+       r."rolinherit",
+       r."rolcreaterole",
+       r."rolcreatedb",
+       r."rolcanlogin",
+       r."rolreplication",
+       r."rolconnlimit",
+       r."rolbypassrls",
+       r."oid"::int,
+       m."admin_option",
+       ARRAY
+           (SELECT "roleid"::int
+            FROM "pg_catalog"."pg_auth_members"
+            where member = r."oid")
+           AS "member_of"
+FROM "pg_catalog"."pg_roles" r
+         LEFT JOIN "pg_auth_members" m ON m."member" = r."oid"
+WHERE r."rolname" = $1
 `
 
 	role := &RoleModel{}
@@ -65,18 +81,23 @@ WHERE "rolname" = $1
 
 func (c *Client) GetRole(ctx context.Context, roleID int64) (*RoleModel, error) {
 	q := `
-SELECT "rolname",
-       "rolsuper",
-       "rolinherit",
-       "rolcreaterole",
-       "rolcreatedb",
-       "rolcanlogin",
-       "rolreplication",
-       "rolconnlimit",
-       "rolbypassrls",
-       "oid"::int
-FROM "pg_catalog"."pg_roles"
-WHERE "oid" = $1
+SELECT r."rolname",
+       r."rolsuper",
+       r."rolinherit",
+       r."rolcreaterole",
+       r."rolcreatedb",
+       r."rolcanlogin",
+       r."rolreplication",
+       r."rolconnlimit",
+       r."rolbypassrls",
+       r."oid"::int,
+       m."admin_option",
+       ARRAY(SELECT "roleid"::int
+             FROM "pg_catalog"."pg_auth_members"
+             where member = r."oid") AS "member_of"
+FROM "pg_catalog"."pg_roles" r
+         LEFT JOIN "pg_auth_members" m ON m."member" = r."oid"
+WHERE r."oid" = $1
 `
 
 	role := &RoleModel{}
@@ -108,10 +129,13 @@ SELECT r."rolname",
        r."rolreplication",
        r."rolconnlimit",
        r."rolbypassrls",
-       "oid"::int,
-       m."admin_option"
+       r."oid"::int,
+       m."admin_option",
+       ARRAY(SELECT "roleid"::int
+             FROM "pg_catalog"."pg_auth_members"
+             where member = r."oid") AS "member_of"
 FROM "pg_catalog"."pg_roles" r
-         JOIN "pg_auth_members" m ON m."member" = r."oid"
+         LEFT JOIN "pg_auth_members" m ON m."member" = r."oid"
 WHERE m."roleid" = $1
 ORDER BY r."rolname"
 `)
@@ -153,17 +177,23 @@ func (c *Client) ListRoles(ctx context.Context, pager *Pager) ([]*RoleModel, str
 	var args []interface{}
 	sb := &strings.Builder{}
 	sb.WriteString(`
-SELECT "rolname",
-       "rolsuper",
-       "rolinherit",
-       "rolcreaterole",
-       "rolcreatedb",
-       "rolcanlogin",
-       "rolreplication",
-       "rolconnlimit",
-       "rolbypassrls",
-       "oid"::int
-FROM "pg_catalog"."pg_roles"
+SELECT r."rolname",
+       r."rolsuper",
+       r."rolinherit",
+       r."rolcreaterole",
+       r."rolcreatedb",
+       r."rolcanlogin",
+       r."rolreplication",
+       r."rolconnlimit",
+       r."rolbypassrls",
+       r."oid"::int,
+       m."admin_option",
+       ARRAY(SELECT "roleid"::int
+             FROM "pg_catalog"."pg_auth_members"
+             where member = r."oid")
+           AS "member_of"
+FROM "pg_catalog"."pg_roles" r
+         LEFT JOIN "pg_auth_members" m ON m."member" = r."oid"
 ORDER BY "rolname"
 `)
 	sb.WriteString("LIMIT $1 ")
