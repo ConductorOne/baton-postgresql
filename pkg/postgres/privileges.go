@@ -218,3 +218,10 @@ func NewAcl(acl string) (*Acl, error) {
 
 	return ret, nil
 }
+
+func NewAclFromPrivilegeSets(privs PrivilegeSet, privsWithGrant PrivilegeSet) *Acl {
+	return &Acl{
+		privs:          privs,
+		privsWithGrant: privsWithGrant,
+	}
+}

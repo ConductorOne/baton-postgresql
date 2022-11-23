@@ -130,6 +130,7 @@ func roleGrantsForPrivileges(
 
 	aclByRole := make(map[string][]*postgres.Acl)
 
+	var defaultACL *postgres.Acl
 	for _, pgACL := range aclObj.GetACLs() {
 		acl, err := postgres.NewAcl(pgACL)
 		if err != nil {
@@ -138,7 +139,8 @@ func roleGrantsForPrivileges(
 
 		grantee := acl.Grantee()
 		if grantee == "" {
-			grantee = "PUBLIC"
+			defaultACL = acl
+			continue
 		}
 
 		roleACLs, ok := aclByRole[grantee]
@@ -149,9 +151,14 @@ func roleGrantsForPrivileges(
 		}
 	}
 
+	if defaultACL == nil {
+		fmt.Println("no PUBLIC acl specified - using object defaults", resource.Id)
+		defaultACL = postgres.NewAclFromPrivilegeSets(aclObj.DefaultPrivileges(), postgres.EmptyPrivilegeSet)
+	}
+
 	for _, r := range roles {
-		privs := postgres.EmptyPrivilegeSet
-		grantPrivs := postgres.EmptyPrivilegeSet
+		privs := defaultACL.Privileges()
+		grantPrivs := defaultACL.GrantPrivileges()
 
 		roleACLs := aclByRole[r.Name]
 
@@ -207,7 +214,7 @@ func entitlementsForPrivs(ctx context.Context, resource *v2.Resource, privs post
 				GrantableTo: []*v2.ResourceType{roleResourceType},
 				Annotations: nil,
 				Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
-				Slug:        "grant: " + slug,
+				Slug:        "grant " + slug,
 			})
 		}
 		return true, nil
