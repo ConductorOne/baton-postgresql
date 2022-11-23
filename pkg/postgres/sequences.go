@@ -38,6 +38,7 @@ func (t *SequenceModel) DefaultPrivileges() PrivilegeSet {
 func (c *Client) GetSequence(ctx context.Context, sequenceID int64) (*SequenceModel, error) {
 	ret := &SequenceModel{}
 
+	//nolint:goconst // we don't wnat to make this query a constant
 	q := `
 SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
 FROM pg_class c

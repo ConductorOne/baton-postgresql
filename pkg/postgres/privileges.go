@@ -46,9 +46,9 @@ func (ps PrivilegeSet) String() string {
 		return "s"
 	case AlterSystem:
 		return "A"
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 func (ps PrivilegeSet) Name() string {
@@ -81,9 +81,9 @@ func (ps PrivilegeSet) Name() string {
 		return "SET"
 	case AlterSystem:
 		return "ALTER SYSTEM"
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 func PrivilegeSetFromRune(s rune) PrivilegeSet {
@@ -184,7 +184,7 @@ func (a *ACL) String() string {
 	return sb.String()
 }
 
-func NewAcl(acl string) (*ACL, error) {
+func NewACL(acl string) (*ACL, error) {
 	ret := &ACL{}
 
 	granteeParts := strings.SplitN(acl, "=", 2)
@@ -219,7 +219,7 @@ func NewAcl(acl string) (*ACL, error) {
 	return ret, nil
 }
 
-func NewAclFromPrivilegeSets(privs PrivilegeSet, privsWithGrant PrivilegeSet) *ACL {
+func NewACLFromPrivilegeSets(privs PrivilegeSet, privsWithGrant PrivilegeSet) *ACL {
 	return &ACL{
 		privs:          privs,
 		privsWithGrant: privsWithGrant,

@@ -79,7 +79,6 @@ func (c *Client) GetLargeObject(ctx context.Context, largeObjectID int64) (*Larg
 	l := ctxzap.Extract(ctx)
 	l.Info("getting large object")
 
-	var args []interface{}
 	sb := &strings.Builder{}
 	sb.WriteString(`
 SELECT "oid"::int,
@@ -88,7 +87,6 @@ SELECT "oid"::int,
 from "pg_catalog"."pg_largeobject_metadata"
 WHERE oid=$1
 `)
-	args = append(args, largeObjectID)
 
 	var ret LargeObjectModel
 	err := pgxscan.Get(ctx, c.db, &ret, sb.String(), largeObjectID)

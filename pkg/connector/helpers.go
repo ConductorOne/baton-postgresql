@@ -145,7 +145,7 @@ func roleGrantsForPrivileges(
 
 	var defaultACL *postgres.ACL
 	for _, pgACL := range aclObj.GetACLs() {
-		acl, err := postgres.NewAcl(pgACL)
+		acl, err := postgres.NewACL(pgACL)
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +165,7 @@ func roleGrantsForPrivileges(
 	}
 
 	if defaultACL == nil {
-		defaultACL = postgres.NewAclFromPrivilegeSets(aclObj.DefaultPrivileges(), postgres.EmptyPrivilegeSet)
+		defaultACL = postgres.NewACLFromPrivilegeSets(aclObj.DefaultPrivileges(), postgres.EmptyPrivilegeSet)
 	}
 
 	for _, r := range roles {

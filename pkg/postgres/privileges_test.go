@@ -205,13 +205,13 @@ func TestNewAcl(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewAcl(tt.args.acl)
+			got, err := NewACL(tt.args.acl)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewAcl() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewACL() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewAcl() got = %v, want %v", got, tt.want)
+				t.Errorf("NewACL() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
