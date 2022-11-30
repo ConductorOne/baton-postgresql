@@ -60,7 +60,7 @@ WHERE "attrelid" = $1
 
 func (c *Client) ListColumns(ctx context.Context, tableID int64, pager *Pager) ([]*ColumnModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing columns for table", zap.Int64("table_id", tableID))
+	l.Debug("listing columns for table", zap.Int64("table_id", tableID))
 
 	offset, limit, err := pager.Parse()
 	if err != nil {

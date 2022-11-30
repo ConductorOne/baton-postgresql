@@ -56,7 +56,7 @@ WHERE c."oid" = $1
 
 func (c *Client) ListSequences(ctx context.Context, schemaID int64, pager *Pager) ([]*SequenceModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing sequences")
+	l.Debug("listing sequences")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {

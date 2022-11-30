@@ -56,7 +56,7 @@ WHERE "oid"=$1
 
 func (c *Client) ListDatabases(ctx context.Context, pager *Pager) ([]*DatabaseModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing databases")
+	l.Debug("listing databases")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {
