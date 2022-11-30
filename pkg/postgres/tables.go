@@ -55,7 +55,7 @@ WHERE c."oid" = $1
 
 func (c *Client) ListTables(ctx context.Context, schemaID int64, pager *Pager) ([]*TableModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing tables")
+	l.Debug("listing tables")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {

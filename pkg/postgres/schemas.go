@@ -56,7 +56,7 @@ WHERE "oid" = $1
 
 func (c *Client) ListSchemas(ctx context.Context, pager *Pager) ([]*SchemaModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing schemas")
+	l.Debug("listing schemas")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {

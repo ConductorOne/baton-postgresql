@@ -51,14 +51,14 @@ func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, 
 		}
 
 		if hasMembers {
-			gt, err := sdk.NewGroupTrait(nil, p)
+			gt, err := sdk.NewGroupTrait(p)
 			if err != nil {
 				return nil, "", nil, err
 			}
 			annos.Append(gt)
 		}
 
-		ut, err := sdk.NewUserTrait("", v2.UserTrait_Status_STATUS_ENABLED, nil, nil)
+		ut, err := sdk.NewUserTrait("", v2.UserTrait_Status_STATUS_ENABLED, nil)
 		if err != nil {
 			return nil, "", nil, err
 		}

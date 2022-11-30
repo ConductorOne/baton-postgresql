@@ -35,7 +35,7 @@ func (t *LargeObjectModel) DefaultPrivileges() PrivilegeSet {
 
 func (c *Client) ListLargeObjects(ctx context.Context, pager *Pager) ([]*LargeObjectModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing large objects")
+	l.Debug("listing large objects")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {
@@ -77,7 +77,7 @@ from "pg_catalog"."pg_largeobject_metadata"
 
 func (c *Client) GetLargeObject(ctx context.Context, largeObjectID int64) (*LargeObjectModel, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("getting large object")
+	l.Debug("getting large object")
 
 	sb := &strings.Builder{}
 	sb.WriteString(`

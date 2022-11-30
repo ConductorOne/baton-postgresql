@@ -111,7 +111,7 @@ WHERE r."oid" = $1
 
 func (c *Client) ListRoleMembers(ctx context.Context, roleID int64, pager *Pager) ([]*RoleModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing role members", zap.Int64("role_id", roleID))
+	l.Debug("listing role members", zap.Int64("role_id", roleID))
 
 	offset, limit, err := pager.Parse()
 	if err != nil {
@@ -168,7 +168,7 @@ ORDER BY r."rolname"
 
 func (c *Client) ListRoles(ctx context.Context, pager *Pager) ([]*RoleModel, string, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("listing roles")
+	l.Debug("listing roles")
 
 	offset, limit, err := pager.Parse()
 	if err != nil {
