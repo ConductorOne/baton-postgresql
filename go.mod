@@ -3,7 +3,7 @@ module github.com/conductorone/baton-postgresql
 go 1.19
 
 require (
-	github.com/conductorone/baton-sdk v0.0.13
+	github.com/conductorone/baton-sdk v0.0.14
 	github.com/georgysavva/scany v1.2.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/jackc/pgx/v4 v4.17.2
