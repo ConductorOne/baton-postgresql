@@ -39,7 +39,7 @@ func main() {
 	cmd.PersistentFlags().StringSlice(
 		"schemas",
 		[]string{"public"},
-		"The schemas to include in the sync. This defaults to 'public' only.",
+		"The schemas to include in the sync. ($BATON_SCHEMAS)\nThis defaults to 'public' only.",
 	)
 
 	err = cmd.Execute()
