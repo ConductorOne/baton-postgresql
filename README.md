@@ -4,7 +4,7 @@
 
 `baton-postgresql` is a connector for PostgreSQL built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It connects to a PostgreSQL database and syncs data about which roles have access to which resources within the database.
 
-Check out [Baton](https://github.com/conductorone/baton) to learn more about Baton.
+Check out [Baton](https://github.com/conductorone/baton) to learn more about the project in general.
 
 
 # Getting Started
