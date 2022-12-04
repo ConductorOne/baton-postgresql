@@ -6,33 +6,38 @@
 
 Check out [Baton](https://github.com/conductorone/baton) to learn more about the project in general.
 
-
 # Getting Started
+
 ## brew
+
 ```
-brew install conductor/baton/baton conductor/baton/baton-postgresql
+brew install conductorone/baton/baton conductorone/baton/baton-postgresql
 
 baton-postgresql --dsn "postgres://username:password@localhost:5432/database_name"
 baton resources
 ```
 
 ## docker
+
 ```
 docker run --rm -v $(pwd):/out -e BATON_DSN=postgres://username:password@localhost:5432/database_name ghcr.io/conductorone/baton-postgresql:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
 ## source
+
 ```
 go install github.com/conductorone/baton/cmd/baton@main
 go install github.com/conductorone/baton-postgresql/cmd/baton-postgresql@main
 
-baton-postgresql --dsn "postgres://username:password@localhost:5432/database_name" 
+baton-postgresql --dsn "postgres://username:password@localhost:5432/database_name"
 baton resources
 ```
 
-# 
+#
+
 `baton-postgresql` will sync information about the following PostgreSQL resources:
+
 - Roles
 - Databases
 - Schemas
@@ -46,7 +51,7 @@ By default, `baton-postgresql` will only sync information from the `public` sche
 
 # Contributing, Support and Issues
 
-We started Baton because we were tired of taking screenshots and manually building spreadsheets.  We welcome contributions, and ideas, no matter how small -- our goal is to make identity and permissions sprawl less painful for everyone.  If you have questions, problems, or ideas: Please open a Github Issue!
+We started Baton because we were tired of taking screenshots and manually building spreadsheets. We welcome contributions, and ideas, no matter how small -- our goal is to make identity and permissions sprawl less painful for everyone. If you have questions, problems, or ideas: Please open a Github Issue!
 
 See [CONTRIBUTING.md](https://github.com/ConductorOne/baton/blob/main/CONTRIBUTING.md) for more details.
 
@@ -75,3 +80,4 @@ Flags:
   -v, --version             version for baton-postgresql
 
 Use "baton-postgresql [command] --help" for more information about a command.
+```
