@@ -34,7 +34,7 @@ baton-postgresql --dsn "postgres://username:password@localhost:5432/database_nam
 baton resources
 ```
 
-#
+# Data Model
 
 `baton-postgresql` will sync information about the following PostgreSQL resources:
 
