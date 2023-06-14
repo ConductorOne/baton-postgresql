@@ -8,7 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
-	"github.com/conductorone/baton-sdk/pkg/sdk"
+	sdkResource "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 var roleResourceType = &v2.ResourceType{
@@ -43,22 +43,20 @@ func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, 
 	for _, o := range roles {
 		var annos annotations.Annotations
 
-		p := make(map[string]interface{})
-
 		hasMembers, err := r.client.RoleHasMembers(ctx, o.ID)
 		if err != nil {
 			return nil, "", nil, err
 		}
 
 		if hasMembers {
-			gt, err := sdk.NewGroupTrait(p)
+			gt, err := sdkResource.NewGroupTrait()
 			if err != nil {
 				return nil, "", nil, err
 			}
 			annos.Update(gt)
 		}
 
-		ut, err := sdk.NewUserTrait("", v2.UserTrait_Status_STATUS_ENABLED, nil)
+		ut, err := sdkResource.NewUserTrait(sdkResource.WithStatus(v2.UserTrait_Status_STATUS_ENABLED))
 		if err != nil {
 			return nil, "", nil, err
 		}
