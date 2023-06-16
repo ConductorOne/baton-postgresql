@@ -64,7 +64,7 @@ func (c *Client) ListDatabases(ctx context.Context, pager *Pager) ([]*DatabaseMo
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT "oid"::int,
        "datname",
        "datdba",
@@ -73,10 +73,10 @@ from "pg_catalog"."pg_database"
 WHERE "datname"=$1
 `)
 	args = append(args, c.cfg.ConnConfig.Database)
-	sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $3")
 		args = append(args, offset)
 	}
 

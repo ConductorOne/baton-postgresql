@@ -119,7 +119,7 @@ func (c *Client) ListRoleMembers(ctx context.Context, roleID int64, pager *Pager
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT r."rolname",
        r."rolsuper",
        r."rolinherit",
@@ -140,10 +140,10 @@ WHERE m."roleid" = $1
 ORDER BY r."rolname"
 `)
 	args = append(args, roleID)
-	sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $3")
 		args = append(args, offset)
 	}
 
@@ -176,7 +176,7 @@ func (c *Client) ListRoles(ctx context.Context, pager *Pager) ([]*RoleModel, str
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT r."rolname",
        r."rolsuper",
        r."rolinherit",
@@ -196,10 +196,10 @@ FROM "pg_catalog"."pg_roles" r
          LEFT JOIN "pg_auth_members" m ON m."member" = r."oid"
 ORDER BY "rolname"
 `)
-	sb.WriteString("LIMIT $1 ")
+	_, _ = sb.WriteString("LIMIT $1 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $2")
+		_, _ = sb.WriteString("OFFSET $2")
 		args = append(args, offset)
 	}
 
