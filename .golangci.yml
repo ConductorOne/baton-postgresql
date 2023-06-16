@@ -39,11 +39,11 @@ linters-settings:
           - fmt.Fprintf
           - fmt.Fprintln
           - os.Stderr.Sync
-          - sb.WriteString
           - buf.WriteString
           - hasher.Write
           - os.Setenv
           - os.RemoveAll
+          - sb.WriteString
       - name: var-naming
         arguments: [["ID", "URL", "HTTP", "API"], []]
 
