@@ -68,7 +68,7 @@ func (c *Client) ListColumns(ctx context.Context, tableID int64, pager *Pager) (
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT a."attnum",
        a."attname",
        a."attacl",
@@ -81,10 +81,10 @@ WHERE a."attrelid" = $1
 `)
 
 	args = append(args, tableID)
-	sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $3")
 		args = append(args, offset)
 	}
 

@@ -170,16 +170,16 @@ func (a *ACL) String() string {
 		grantee = "PUBLIC"
 	}
 
-	sb.WriteString(grantee + "=")
+	_, _ = sb.WriteString(grantee + "=")
 	for key := Insert; key < Terminator; key <<= 1 {
 		if a.privs.Has(key) {
-			sb.WriteString(key.String())
+			_, _ = sb.WriteString(key.String())
 			if a.privsWithGrant.Has(key) {
-				sb.WriteString("*")
+				_, _ = sb.WriteString("*")
 			}
 		}
 	}
-	sb.WriteString("/" + a.grantor)
+	_, _ = sb.WriteString("/" + a.grantor)
 
 	return sb.String()
 }

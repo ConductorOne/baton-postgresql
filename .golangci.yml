@@ -33,7 +33,6 @@ linters-settings:
       # These are functions that we use without checking the errors often. Most of these can't return an error even
       # though they implement an interface that can.
       - name: unhandled-error
-        severity: warning
         arguments:
           - fmt.Printf
           - fmt.Println

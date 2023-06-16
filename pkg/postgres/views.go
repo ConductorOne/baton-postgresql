@@ -64,7 +64,7 @@ func (c *Client) ListViews(ctx context.Context, schemaID int64, pager *Pager) ([
 	var args []interface{}
 	sb := &strings.Builder{}
 
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT c."oid"::int, c."relname", c."relowner", n."nspname", c."relacl"
 FROM pg_class c
          LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
@@ -72,10 +72,10 @@ WHERE n."oid" = $1 AND c."relkind" = 'v'
 `)
 	args = append(args, schemaID)
 
-	sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $3")
 		args = append(args, offset)
 	}
 

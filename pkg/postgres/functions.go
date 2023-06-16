@@ -66,7 +66,7 @@ func (c *Client) ListFunctions(ctx context.Context, schemaID int64, pager *Pager
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT a."oid"::int, a."proname",
        n."nspname",
        a."proowner"::int, a."proacl"
@@ -76,10 +76,10 @@ WHERE a."prokind" = 'f'
   AND a."pronamespace" = $1
 `)
 	args = append(args, schemaID)
-	sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $3")
 		args = append(args, offset)
 	}
 

@@ -43,16 +43,16 @@ func (c *Client) ListLargeObjects(ctx context.Context, pager *Pager) ([]*LargeOb
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT "oid"::int,
        "lomowner",
        "lomacl"
 from "pg_catalog"."pg_largeobject_metadata"
 `)
-	sb.WriteString("LIMIT $1 ")
+	_, _ = sb.WriteString("LIMIT $1 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $2")
+		_, _ = sb.WriteString("OFFSET $2")
 		args = append(args, offset)
 	}
 
@@ -80,7 +80,7 @@ func (c *Client) GetLargeObject(ctx context.Context, largeObjectID int64) (*Larg
 	l.Debug("getting large object")
 
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT "oid"::int,
        "lomowner",
        "lomacl"

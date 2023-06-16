@@ -64,27 +64,27 @@ func (c *Client) ListSchemas(ctx context.Context, pager *Pager) ([]*SchemaModel,
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 SELECT "oid"::int, "nspname",
        "nspowner",
        "nspacl"
 from "pg_catalog"."pg_namespace"
 `)
 	if len(c.schemaFilter) > 0 {
-		sb.WriteString("WHERE ")
+		_, _ = sb.WriteString("WHERE ")
 		for ii, s := range c.schemaFilter {
 			if ii != 0 {
-				sb.WriteString("OR ")
+				_, _ = sb.WriteString("OR ")
 			}
-			sb.WriteString(fmt.Sprintf(`"nspname" = $%d `, len(args)+1))
+			_, _ = sb.WriteString(fmt.Sprintf(`"nspname" = $%d `, len(args)+1))
 			args = append(args, s)
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("LIMIT $%d ", len(args)+1))
+	_, _ = sb.WriteString(fmt.Sprintf("LIMIT $%d ", len(args)+1))
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString(fmt.Sprintf("OFFSET $%d ", len(args)+1))
+		_, _ = sb.WriteString(fmt.Sprintf("OFFSET $%d ", len(args)+1))
 		args = append(args, offset)
 	}
 

@@ -66,7 +66,7 @@ func (c *Client) ListProcedures(ctx context.Context, schemaID int64, pager *Page
 	}
 	var args []interface{}
 	sb := &strings.Builder{}
-	sb.WriteString(`
+	_, _ = sb.WriteString(`
 select a."oid"::int, a."proname", n."nspname", a."proowner"::int, a."proacl"
 from "pg_catalog"."pg_proc" a
          LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
@@ -74,10 +74,10 @@ where a."prokind" = 'p'
   and a."pronamespace" = $1
 `)
 	args = append(args, schemaID)
-	sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $3")
 		args = append(args, offset)
 	}
 
