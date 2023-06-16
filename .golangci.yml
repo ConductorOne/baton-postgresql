@@ -34,16 +34,16 @@ linters-settings:
       # though they implement an interface that can.
       - name: unhandled-error
         arguments:
-          - fmt.Printf
-          - fmt.Println
-          - fmt.Fprintf
-          - fmt.Fprintln
-          - os.Stderr.Sync
-          - buf.WriteString
-          - hasher.Write
-          - os.Setenv
-          - os.RemoveAll
-          - sb.WriteString
+          - fmt\.Printf
+          - fmt\.Println
+          - fmt\.Fprintf
+          - fmt\.Fprintln
+          - os\.Stderr\.Sync
+          - buf\.WriteString
+          - hasher\.Write
+          - os\.Setenv
+          - os\.RemoveAll
+          - sb\.WriteString
       - name: var-naming
         arguments: [["ID", "URL", "HTTP", "API"], []]
 
