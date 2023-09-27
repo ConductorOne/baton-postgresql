@@ -40,6 +40,12 @@ func main() {
 		"The schemas to include in the sync. ($BATON_SCHEMAS)\nThis defaults to 'public' only.",
 	)
 
+	cmd.PersistentFlags().Bool(
+		"include-columns",
+		false,
+		"Include column privileges when syncing. This can result in large amounts of data. ($BATON_INCLUDE_COLUMNS)\nThis defaults to false.",
+	)
+
 	err = cmd.Execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -50,7 +56,7 @@ func main() {
 func getConnector(ctx context.Context, cfg *config) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
-	cb, err := connector.New(ctx, cfg.Dsn, cfg.Schemas)
+	cb, err := connector.New(ctx, cfg.Dsn, cfg.Schemas, cfg.IncludeColumns)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

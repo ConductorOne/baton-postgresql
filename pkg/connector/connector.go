@@ -12,15 +12,16 @@ import (
 )
 
 type Postgresql struct {
-	client  *postgres.Client
-	schemas []string
+	client         *postgres.Client
+	schemas        []string
+	includeColumns bool
 }
 
 func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{
 		newRoleSyncer(ctx, o.client),
 		newSchemaSyncer(ctx, o.client),
-		newTableSyncer(ctx, o.client),
+		newTableSyncer(ctx, o.client, o.includeColumns),
 		newViewSyncer(ctx, o.client),
 		newColumnSyncer(ctx, o.client),
 		newFunctionSyncer(ctx, o.client),
@@ -48,13 +49,14 @@ func (c *Postgresql) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.
 	return "", nil, fmt.Errorf("not implemented")
 }
 
-func New(ctx context.Context, dsn string, schemas []string) (*Postgresql, error) {
+func New(ctx context.Context, dsn string, schemas []string, includeColumns bool) (*Postgresql, error) {
 	c, err := postgres.New(ctx, dsn, postgres.WithSchemaFilter(schemas))
 	if err != nil {
 		return nil, err
 	}
 	return &Postgresql{
-		client:  c,
-		schemas: schemas,
+		client:         c,
+		schemas:        schemas,
+		includeColumns: includeColumns,
 	}, nil
 }
