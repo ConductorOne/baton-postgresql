@@ -46,6 +46,12 @@ func main() {
 		"Include column privileges when syncing. This can result in large amounts of data. ($BATON_INCLUDE_COLUMNS)\nThis defaults to false.",
 	)
 
+	cmd.PersistentFlags().Bool(
+		"include-large-objects",
+		false,
+		"Include large objects when syncing. This can result in large amounts of data. ($BATON_INCLUDE_LARGE_OBJECTS)\nThis defaults to false.",
+	)
+
 	err = cmd.Execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -56,7 +62,7 @@ func main() {
 func getConnector(ctx context.Context, cfg *config) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
-	cb, err := connector.New(ctx, cfg.Dsn, cfg.Schemas, cfg.IncludeColumns)
+	cb, err := connector.New(ctx, cfg.Dsn, cfg.Schemas, cfg.IncludeColumns, cfg.IncludeLargeObjects)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

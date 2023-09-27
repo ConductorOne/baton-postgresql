@@ -12,9 +12,10 @@ import (
 )
 
 type Postgresql struct {
-	client         *postgres.Client
-	schemas        []string
-	includeColumns bool
+	client              *postgres.Client
+	schemas             []string
+	includeColumns      bool
+	includeLargeObjects bool
 }
 
 func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
@@ -26,7 +27,7 @@ func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.Res
 		newColumnSyncer(ctx, o.client),
 		newFunctionSyncer(ctx, o.client),
 		newProcedureSyncer(ctx, o.client),
-		newLargeObjectSyncer(ctx, o.client),
+		newLargeObjectSyncer(ctx, o.client, o.includeLargeObjects),
 		newDatabaseSyncer(ctx, o.client),
 		newSequenceSyncer(ctx, o.client),
 	}
@@ -49,14 +50,15 @@ func (c *Postgresql) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.
 	return "", nil, fmt.Errorf("not implemented")
 }
 
-func New(ctx context.Context, dsn string, schemas []string, includeColumns bool) (*Postgresql, error) {
+func New(ctx context.Context, dsn string, schemas []string, includeColumns bool, includeLargeObjects bool) (*Postgresql, error) {
 	c, err := postgres.New(ctx, dsn, postgres.WithSchemaFilter(schemas))
 	if err != nil {
 		return nil, err
 	}
 	return &Postgresql{
-		client:         c,
-		schemas:        schemas,
-		includeColumns: includeColumns,
+		client:              c,
+		schemas:             schemas,
+		includeColumns:      includeColumns,
+		includeLargeObjects: includeLargeObjects,
 	}, nil
 }
