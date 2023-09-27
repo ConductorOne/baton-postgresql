@@ -20,6 +20,7 @@ var largeObjectResourceType = &v2.ResourceType{
 type largeObjectSyncer struct {
 	resourceType *v2.ResourceType
 	client       *postgres.Client
+	enabled      bool
 }
 
 func (r *largeObjectSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -31,6 +32,10 @@ func (r *largeObjectSyncer) List(ctx context.Context, parentResourceID *v2.Resou
 
 	if parentResourceID != nil {
 		return nil, "", nil, fmt.Errorf("unexpected parent resource ID on large object")
+	}
+
+	if !r.enabled {
+		return nil, "", nil, nil
 	}
 
 	largeObjects, nextPageToken, err := r.client.ListLargeObjects(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
@@ -89,9 +94,10 @@ func (r *largeObjectSyncer) Grants(ctx context.Context, resource *v2.Resource, p
 	return ret, nextPageToken, nil, nil
 }
 
-func newLargeObjectSyncer(ctx context.Context, c *postgres.Client) *largeObjectSyncer {
+func newLargeObjectSyncer(ctx context.Context, c *postgres.Client, enabled bool) *largeObjectSyncer {
 	return &largeObjectSyncer{
 		resourceType: largeObjectResourceType,
 		client:       c,
+		enabled:      enabled,
 	}
 }

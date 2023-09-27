@@ -18,8 +18,9 @@ var tableResourceType = &v2.ResourceType{
 }
 
 type tableSyncer struct {
-	resourceType *v2.ResourceType
-	client       *postgres.Client
+	resourceType   *v2.ResourceType
+	client         *postgres.Client
+	includeColumns bool
 }
 
 func (r *tableSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -51,7 +52,9 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 	for _, o := range tables {
 		var annos annotations.Annotations
 
-		annos.Append(&v2.ChildResourceType{ResourceTypeId: columnResourceType.Id})
+		if r.includeColumns {
+			annos.Append(&v2.ChildResourceType{ResourceTypeId: columnResourceType.Id})
+		}
 
 		ret = append(ret, &v2.Resource{
 			DisplayName: o.Name,
@@ -104,9 +107,10 @@ func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken 
 	return ret, nextPageToken, nil, nil
 }
 
-func newTableSyncer(ctx context.Context, c *postgres.Client) *tableSyncer {
+func newTableSyncer(ctx context.Context, c *postgres.Client, includeColumns bool) *tableSyncer {
 	return &tableSyncer{
-		resourceType: tableResourceType,
-		client:       c,
+		resourceType:   tableResourceType,
+		client:         c,
+		includeColumns: includeColumns,
 	}
 }
