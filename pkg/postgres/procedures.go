@@ -40,7 +40,9 @@ func (c *Client) GetProcedure(ctx context.Context, functionID int64) (*Procedure
 	ret := &ProcedureModel{}
 
 	q := `
-SELECT a."oid"::int, a."proname",
+SELECT DISTINCT
+       a."oid"::int,
+       a."proname",
        n."nspname",
        a."proowner"::int, a."proacl"
 FROM "pg_catalog"."pg_proc" a

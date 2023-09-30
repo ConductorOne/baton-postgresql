@@ -35,16 +35,20 @@ func (t *SequenceModel) DefaultPrivileges() PrivilegeSet {
 	return EmptyPrivilegeSet
 }
 
-func (c *Client) GetSequence(ctx context.Context, sequenceID int64) (*SequenceModel, error) {
-	ret := &SequenceModel{}
-
-	//nolint:goconst // we don't wnat to make this query a constant
+func (c *Client) getClassQuery(ctx context.Context) string {
 	q := `
-SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
+SELECT DISTINCT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
 FROM pg_class c
          LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
 WHERE c."oid" = $1
 `
+	return q
+}
+
+func (c *Client) GetSequence(ctx context.Context, sequenceID int64) (*SequenceModel, error) {
+	ret := &SequenceModel{}
+
+	q := c.getClassQuery(ctx)
 
 	err := pgxscan.Get(ctx, c.db, ret, q, sequenceID)
 	if err != nil {
