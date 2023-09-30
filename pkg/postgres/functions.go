@@ -40,7 +40,8 @@ func (c *Client) GetFunction(ctx context.Context, functionID int64) (*FunctionMo
 	ret := &FunctionModel{}
 
 	q := `
-SELECT a."oid"::int, a."proname",
+SELECT DISTINCT 
+       a."oid"::int, a."proname",
        n."nspname",
        a."proowner"::int, a."proacl"
 FROM "pg_catalog"."pg_proc" a

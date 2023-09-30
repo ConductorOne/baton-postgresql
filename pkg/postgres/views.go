@@ -38,12 +38,7 @@ func (t *ViewModel) DefaultPrivileges() PrivilegeSet {
 func (c *Client) GetView(ctx context.Context, viewID int64) (*ViewModel, error) {
 	ret := &ViewModel{}
 
-	q := `
-SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
-FROM pg_class c
-         LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
-WHERE c."oid" = $1
-`
+	q := c.getClassQuery(ctx)
 
 	err := pgxscan.Get(ctx, c.db, ret, q, viewID)
 	if err != nil {

@@ -81,7 +81,8 @@ WHERE r."rolname" = $1
 
 func (c *Client) GetRole(ctx context.Context, roleID int64) (*RoleModel, error) {
 	q := `
-SELECT r."rolname",
+SELECT DISTINCT
+       r."rolname",
        r."rolsuper",
        r."rolinherit",
        r."rolcreaterole",
