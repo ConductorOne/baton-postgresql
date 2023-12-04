@@ -6,13 +6,7 @@ services:
     hostname: postgres
     ports:
       - "5432:5432"
-    # Uncomment these lines if you want to persist data.
-    # volumes:
-    #   - ./data/certificates:/container/service/slapd/assets/certs
-    #   - ./data/slapd/database:/var/lib/ldap
-    #   - ./data/slapd/config:/etc/ldap/slapd.d
     environment:
-      # If you want to persist data, set the UID/GID to the owner user/groups in your volume mounts
       POSTGRES_PASSWORD: secretpassword
     networks:
       - postgres
