@@ -36,3 +36,34 @@ jobs:
         uses: guyarb/golang-test-annotations@v0.5.1
         with:
           test-results: test.json
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_PASSWORD: secretpassword
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20.x
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Install postgres client
+        run: sudo apt install postgresql-client
+      # - name: Import sql into postgres
+      #   run: psql -h localhost --user postgres -f environment.sql
+      #   env:
+      #     PGPASSWORD: secretpassword 
+      - name: Build baton-postgresql
+        run: go build ./cmd/baton-postgresql
+      - name: Run baton-postgresql
+        run: ./baton-postgresql --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres'
+      # Enable when provisioning works
+      # - name: Revoke grants
+      #   run: ./baton-postgresql --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --revoke-grant 'grant:entitlement:database:5:replication:role:10'
+      # - name: Grant entitlements
+      #   run: ./baton-postgresql --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --grant-entitlement 'entitlement:database:5:replication' --grant-principal 'postgres' --grant-principal-type 'user'
