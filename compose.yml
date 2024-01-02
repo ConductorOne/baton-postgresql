@@ -1,0 +1,16 @@
+version: '3.7'
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: secretpassword
+    networks:
+      - postgres
+
+networks:
+  postgres:
+    driver: bridge
