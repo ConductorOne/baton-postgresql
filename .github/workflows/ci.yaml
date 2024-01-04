@@ -61,9 +61,8 @@ jobs:
       - name: Build baton-postgresql
         run: go build ./cmd/baton-postgresql
       - name: Run baton-postgresql
-        run: ./baton-postgresql --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres'
-      # Enable when provisioning works
-      # - name: Revoke grants
-      #   run: ./baton-postgresql --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --revoke-grant 'grant:entitlement:database:5:replication:role:10'
-      # - name: Grant entitlements
-      #   run: ./baton-postgresql --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --grant-entitlement 'entitlement:database:5:replication' --grant-principal 'postgres' --grant-principal-type 'user'
+        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres'
+      - name: Revoke grants
+        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --revoke-grant 'grant:entitlement:role:3375:member:role:3373'
+      - name: Grant entitlements
+        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --grant-entitlement 'entitlement:role:3375:member' --grant-principal 'role:3373' --grant-principal-type 'role'

@@ -62,6 +62,20 @@ func formatEntitlementID(resource *v2.Resource, privName string, grant bool) str
 	}
 }
 
+func parseEntitlementID(id string) (string, string, bool, error) {
+	parts := strings.SplitN(id, ":", 5)
+
+	if len(parts) == 4 {
+		return parts[1], parts[2], false, nil
+	}
+
+	if len(parts) == 5 && parts[4] == "grant" {
+		return parts[1], parts[2], true, nil
+	}
+
+	return "", "", false, fmt.Errorf("invalid entilement ID %s %d", id, len(parts))
+}
+
 func grantsForPrivilegeSet(
 	ctx context.Context,
 	resource *v2.Resource,
