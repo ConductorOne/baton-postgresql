@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -48,7 +49,7 @@ func (c *Client) RoleHasMembers(ctx context.Context, roleID int64) (bool, error)
 	return ret, nil
 }
 
-func (c *Client) GetRoleByName(ctx context.Context, roleID string) (*RoleModel, error) {
+func (c *Client) GetRoleByName(ctx context.Context, roleName string) (*RoleModel, error) {
 	q := `
 SELECT r."rolname",
        r."rolsuper",
@@ -72,7 +73,7 @@ WHERE r."rolname" = $1
 `
 
 	role := &RoleModel{}
-	err := pgxscan.Get(ctx, c.db, role, q, roleID)
+	err := pgxscan.Get(ctx, c.db, role, q, roleName)
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +140,21 @@ func (c *Client) Revoke(ctx context.Context, roleName string, target string, isG
 	l.Debug("revoking role from member", zap.String("query", query))
 	_, err := c.db.Exec(ctx, query)
 	return err
+}
+
+func (c *Client) CreateUser(ctx context.Context, login string, password string) (*RoleModel, error) {
+	l := ctxzap.Extract(ctx)
+
+	// TODO: sanitize
+	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD '%s'", login, password)
+
+	l.Debug("creating user", zap.String("query", query))
+
+	_, err := c.db.Exec(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetRoleByName(ctx, login)
 }
 
 func (c *Client) ListRoleMembers(ctx context.Context, roleID int64, pager *Pager) ([]*RoleModel, string, error) {
