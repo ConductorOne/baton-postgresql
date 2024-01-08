@@ -2,19 +2,17 @@ package provisioner
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-jose/go-jose/v3"
-	"github.com/segmentio/ksuid"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type Provisioner struct {
@@ -32,6 +30,9 @@ type Provisioner struct {
 
 	createAccountLogin string
 	createAccountEmail string
+
+	deleteResourceID   string
+	deleteResourceType string
 }
 
 func (p *Provisioner) Run(ctx context.Context) error {
@@ -42,6 +43,8 @@ func (p *Provisioner) Run(ctx context.Context) error {
 		return p.grant(ctx)
 	case p.createAccountLogin != "" || p.createAccountEmail != "":
 		return p.createAccount(ctx)
+	case p.deleteResourceID != "" && p.deleteResourceType != "":
+		return p.deleteResource(ctx)
 	default:
 		return errors.New("unknown provisioning action")
 	}
@@ -155,7 +158,7 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return err
 	}
 
-	result, err := p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
+	_, err = p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
 		Grant: &v2.Grant{
 			Id:          grant.Grant.Id,
 			Entitlement: entitlement.Entitlement,
@@ -167,27 +170,11 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return err
 	}
 
-	spew.Dump(result)
 	return nil
 }
 
-func genKey() (*ecdsa.PrivateKey, *jose.JSONWebKey, []byte) {
-	key, _ := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
-
-	kid := ksuid.New().String()
-
-	jsonPubKey := &jose.JSONWebKey{
-		Key:       key.Public(),
-		KeyID:     kid,
-		Use:       "enc",
-		Algorithm: string(jose.ECDH_ES_A256KW),
-	}
-	marshalledPubKey, _ := jsonPubKey.MarshalJSON()
-
-	return key, jsonPubKey, marshalledPubKey
-}
-
 func (p *Provisioner) createAccount(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
 	var emails []*v2.AccountInfo_Email
 	if p.createAccountEmail != "" {
 		emails = append(emails, &v2.AccountInfo_Email{
@@ -196,10 +183,20 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		})
 	}
 
-	privKey, _, pubKeyJWKBytes := genKey()
-
-	// create an encryption manager
-	opts := &v2.CredentialOptions{}
+	// Default to generating a random key and random password that is 12 characters long
+	privKey, pubKey := crypto.GenKey()
+	pubKeyJWKBytes, err := pubKey.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	opts := &v2.CredentialOptions{
+		Create: true,
+		Options: &v2.CredentialOptions_RandomPassword_{
+			RandomPassword: &v2.CredentialOptions_RandomPassword{
+				Length: 12,
+			},
+		},
+	}
 	config := []*v2.EncryptionConfig{
 		{
 			Config: &v2.EncryptionConfig_PublicKeyConfig_{
@@ -230,7 +227,22 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	spew.Dump(plaintext)
+	// TODO FIXME: do better
+	l.Info("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail), zap.String("password", string(plaintext)))
+
+	return nil
+}
+
+func (p *Provisioner) deleteResource(ctx context.Context) error {
+	_, err := p.connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
+		ResourceId: &v2.ResourceId{
+			Resource:     p.deleteResourceID,
+			ResourceType: p.deleteResourceType,
+		},
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -249,6 +261,15 @@ func NewRevoker(c types.ConnectorClient, dbPath string, grantID string) *Provisi
 		dbPath:        dbPath,
 		connector:     c,
 		revokeGrantID: grantID,
+	}
+}
+
+func NewResourceDeleter(c types.ConnectorClient, dbPath string, resourceId string, resourceType string) *Provisioner {
+	return &Provisioner{
+		dbPath:             dbPath,
+		connector:          c,
+		deleteResourceID:   resourceId,
+		deleteResourceType: resourceType,
 	}
 }
 

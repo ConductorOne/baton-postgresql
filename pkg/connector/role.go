@@ -174,6 +174,29 @@ func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 	return ret, nextPageToken, nil, nil
 }
 
+func (r *roleSyncer) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
+	return nil, nil, fmt.Errorf("baton-postgres: role creation not supported")
+}
+
+func (r *roleSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {
+	if resourceId.ResourceType != roleResourceType.Id {
+		return nil, fmt.Errorf("baton-postgres: non-role/user resource passed to role delete")
+	}
+
+	roleId, err := parseObjectID(resourceId.Resource)
+	if err != nil {
+		return nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.client.DeleteRole(ctx, pgRole.Name)
+	return nil, err
+}
+
 func (r *roleSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	if principal.Id.ResourceType != roleResourceType.Id {
 		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
@@ -182,7 +205,7 @@ func (r *roleSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlem
 	// TODO: pass IDs into client.Grant() and look up the names there
 	roleName := entitlement.Resource.DisplayName
 	principalName := principal.DisplayName
-	err := r.client.Grant(ctx, roleName, principalName)
+	err := r.client.GrantRole(ctx, roleName, principalName)
 	return nil, nil, err
 }
 
@@ -206,13 +229,15 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	}
 
 	principalName := principal.DisplayName
-	err = r.client.Revoke(ctx, pgRole.Name, principalName, isGrant)
+	err = r.client.RevokeRole(ctx, pgRole.Name, principalName, isGrant)
 	return nil, err
 }
 
 func (r *roleSyncer) CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (connectorbuilder.CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error) {
-	// TODO: call a function that parses credentialOptions and returns a randomly generated password
-	plainTextCredential := "1234"
+	plainTextCredential, err := crypto.GeneratePassword(credentialOptions)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	ptc := &crypto.PlaintextCredential{
 		Name:  "password",
 		Bytes: []byte(plainTextCredential),

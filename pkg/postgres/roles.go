@@ -112,7 +112,7 @@ WHERE r."oid" = $1
 	return role, nil
 }
 
-func (c *Client) Grant(ctx context.Context, roleName string, principalName string) error {
+func (c *Client) GrantRole(ctx context.Context, roleName string, principalName string) error {
 	l := ctxzap.Extract(ctx)
 
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
@@ -125,7 +125,7 @@ func (c *Client) Grant(ctx context.Context, roleName string, principalName strin
 	return err
 }
 
-func (c *Client) Revoke(ctx context.Context, roleName string, target string, isGrant bool) error {
+func (c *Client) RevokeRole(ctx context.Context, roleName string, target string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
@@ -138,6 +138,28 @@ func (c *Client) Revoke(ctx context.Context, roleName string, target string, isG
 	}
 
 	l.Debug("revoking role from member", zap.String("query", query))
+	_, err := c.db.Exec(ctx, query)
+	return err
+}
+
+func (c *Client) CreateRole(ctx context.Context, roleName string) error {
+	l := ctxzap.Extract(ctx)
+
+	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
+	query := "CREATE ROLE " + sanitizedRoleName
+
+	l.Debug("creating role", zap.String("query", query))
+	_, err := c.db.Exec(ctx, query)
+	return err
+}
+
+func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
+	l := ctxzap.Extract(ctx)
+
+	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
+	query := "DROP ROLE " + sanitizedRoleName
+
+	l.Debug("deleting role", zap.String("query", query))
 	_, err := c.db.Exec(ctx, query)
 	return err
 }
