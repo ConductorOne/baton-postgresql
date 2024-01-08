@@ -233,7 +233,16 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	return nil, err
 }
 
-func (r *roleSyncer) CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (connectorbuilder.CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error) {
+func (r *roleSyncer) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	credentialOptions *v2.CredentialOptions,
+) (
+	connectorbuilder.CreateAccountResponse,
+	[]*crypto.PlaintextCredential,
+	annotations.Annotations,
+	error,
+) {
 	plainTextCredential, err := crypto.GeneratePassword(credentialOptions)
 	if err != nil {
 		return nil, nil, nil, err
