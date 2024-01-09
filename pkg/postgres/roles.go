@@ -167,13 +167,12 @@ func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
 func (c *Client) CreateUser(ctx context.Context, login string, password string) (*RoleModel, error) {
 	l := ctxzap.Extract(ctx)
 
-	// TODO: sanitize login
-	sanitizedPassword := pgx.Identifier{password}.Sanitize()
-	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD '%s'", login, sanitizedPassword)
+	sanitizedLogin := pgx.Identifier{login}.Sanitize()
+	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD $1", sanitizedLogin)
 
 	l.Debug("creating user", zap.String("query", query))
 
-	_, err := c.db.Exec(ctx, query)
+	_, err := c.db.Exec(ctx, query, pgx.QuerySimpleProtocol(true), password)
 	if err != nil {
 		return nil, err
 	}
@@ -184,13 +183,12 @@ func (c *Client) ChangePassword(ctx context.Context, userName string, password s
 	l := ctxzap.Extract(ctx)
 
 	sanitizedUserName := pgx.Identifier{userName}.Sanitize()
-	sanitizedPassword := pgx.Identifier{password}.Sanitize()
 
-	query := fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s'", sanitizedUserName, sanitizedPassword)
+	query := fmt.Sprintf("ALTER USER %s WITH PASSWORD $1", sanitizedUserName)
 
 	l.Debug("changing password for user", zap.String("query", query))
 
-	_, err := c.db.Exec(ctx, query)
+	_, err := c.db.Exec(ctx, query, pgx.QuerySimpleProtocol(true), password)
 	if err != nil {
 		return nil, err
 	}
