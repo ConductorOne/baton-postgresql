@@ -233,6 +233,46 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	return nil, err
 }
 
+func (r *roleSyncer) Rotate(
+	ctx context.Context,
+	resourceId *v2.ResourceId,
+	credentialOptions *v2.CredentialOptions,
+) (
+	[]*crypto.PlaintextCredential,
+	annotations.Annotations,
+	error,
+) {
+	if resourceId.ResourceType != roleResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: non-role/user resource passed to rotate credentials")
+	}
+
+	roleId, err := parseObjectID(resourceId.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleId)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	plainTextCredential, err := crypto.GeneratePassword(credentialOptions)
+	if err != nil {
+		return nil, nil, err
+	}
+	ptc := &crypto.PlaintextCredential{
+		Name:  "password",
+		Bytes: []byte(plainTextCredential),
+	}
+
+	_, err = r.client.ChangePassword(ctx, pgRole.Name, plainTextCredential)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return []*crypto.PlaintextCredential{ptc}, nil, nil
+}
+
 func (r *roleSyncer) CreateAccount(
 	ctx context.Context,
 	accountInfo *v2.AccountInfo,

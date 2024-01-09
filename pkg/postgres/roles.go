@@ -167,8 +167,9 @@ func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
 func (c *Client) CreateUser(ctx context.Context, login string, password string) (*RoleModel, error) {
 	l := ctxzap.Extract(ctx)
 
-	// TODO: sanitize
-	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD '%s'", login, password)
+	// TODO: sanitize login
+	sanitizedPassword := pgx.Identifier{password}.Sanitize()
+	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD '%s'", login, sanitizedPassword)
 
 	l.Debug("creating user", zap.String("query", query))
 
@@ -177,6 +178,23 @@ func (c *Client) CreateUser(ctx context.Context, login string, password string) 
 		return nil, err
 	}
 	return c.GetRoleByName(ctx, login)
+}
+
+func (c *Client) ChangePassword(ctx context.Context, userName string, password string) (*RoleModel, error) {
+	l := ctxzap.Extract(ctx)
+
+	sanitizedUserName := pgx.Identifier{userName}.Sanitize()
+	sanitizedPassword := pgx.Identifier{password}.Sanitize()
+
+	query := fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s'", sanitizedUserName, sanitizedPassword)
+
+	l.Debug("changing password for user", zap.String("query", query))
+
+	_, err := c.db.Exec(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetRoleByName(ctx, userName)
 }
 
 func (c *Client) ListRoleMembers(ctx context.Context, roleID int64, pager *Pager) ([]*RoleModel, string, error) {
