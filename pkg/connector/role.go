@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -161,6 +162,41 @@ func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 	}
 
 	return ret, nextPageToken, nil, nil
+}
+
+func (r *roleSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+	}
+
+	roleName := entitlement.Resource.DisplayName
+	principalName := principal.DisplayName
+	err := r.client.Grant(ctx, roleName, principalName)
+	return nil, nil, err
+}
+
+func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	entitlement := grant.Entitlement
+	principal := grant.Principal
+
+	_, roleIdStr, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	roleID, err := strconv.ParseInt(roleIdStr, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleID)
+	if err != nil {
+		return nil, err
+	}
+
+	principalName := principal.DisplayName
+	err = r.client.Revoke(ctx, pgRole.Name, principalName, isGrant)
+	return nil, err
 }
 
 func newRoleSyncer(ctx context.Context, c *postgres.Client) *roleSyncer {

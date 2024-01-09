@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
@@ -31,16 +32,22 @@ func WithSchemaFilter(filter []string) ClientOpt {
 }
 
 func New(ctx context.Context, dsn string, opts ...ClientOpt) (*Client, error) {
+	l := ctxzap.Extract(ctx)
+
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
 
+	logger := &Logger{}
+	config.ConnConfig.LogLevel = logger.Zap2PgxLogLevel(l.Level())
+	config.ConnConfig.Logger = logger
+
 	if config.ConnConfig.Database == "" {
 		return nil, fmt.Errorf("must specify a database to connect to")
 	}
 
-	db, err := pgxpool.Connect(ctx, dsn)
+	db, err := pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}

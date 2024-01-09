@@ -9,6 +9,7 @@ import (
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/jackc/pgx/v4"
 	"go.uber.org/zap"
 )
 
@@ -108,6 +109,36 @@ WHERE r."oid" = $1
 	}
 
 	return role, nil
+}
+
+func (c *Client) Grant(ctx context.Context, roleName string, principalName string) error {
+	l := ctxzap.Extract(ctx)
+
+	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+
+	query := "GRANT " + sanitizedRoleName + " TO " + sanitizedPrincipalName
+	l.Debug("granting role to member", zap.String("query", query))
+
+	_, err := c.db.Exec(ctx, query)
+	return err
+}
+
+func (c *Client) Revoke(ctx context.Context, roleName string, target string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+
+	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
+	sanitizedTarget := pgx.Identifier{target}.Sanitize()
+
+	query := "REVOKE " + sanitizedRoleName + " FROM " + sanitizedTarget
+
+	if isGrant {
+		query = "REVOKE GRANT OPTION FOR " + sanitizedRoleName + " FROM " + sanitizedTarget
+	}
+
+	l.Debug("revoking role from member", zap.String("query", query))
+	_, err := c.db.Exec(ctx, query)
+	return err
 }
 
 func (c *Client) ListRoleMembers(ctx context.Context, roleID int64, pager *Pager) ([]*RoleModel, string, error) {
