@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/jackc/pgx/v4"
+	"go.uber.org/zap"
 )
 
 type DatabaseModel struct {
@@ -54,6 +57,26 @@ WHERE "oid"=$1
 	return ret, nil
 }
 
+func (c *Client) GetDatabaseByName(ctx context.Context, dbName string) (*DatabaseModel, error) {
+	ret := &DatabaseModel{}
+
+	q := `
+SELECT "oid"::int,
+       "datname",
+       "datdba",
+       "datacl"
+from "pg_catalog"."pg_database"
+WHERE "datname"=$1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListDatabases(ctx context.Context, pager *Pager) ([]*DatabaseModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Debug("listing databases")
@@ -70,13 +93,11 @@ SELECT "oid"::int,
        "datdba",
        "datacl"
 from "pg_catalog"."pg_database"
-WHERE "datname"=$1
 `)
-	args = append(args, c.cfg.ConnConfig.Database)
-	_, _ = sb.WriteString("LIMIT $2 ")
+	_, _ = sb.WriteString("LIMIT $1 ")
 	args = append(args, limit+1)
 	if offset > 0 {
-		_, _ = sb.WriteString("OFFSET $3")
+		_, _ = sb.WriteString("OFFSET $2")
 		args = append(args, offset)
 	}
 
@@ -97,4 +118,27 @@ WHERE "datname"=$1
 	}
 
 	return ret, nextPageToken, nil
+}
+
+func (c *Client) CreateDatabase(ctx context.Context, dbName string) (*DatabaseModel, error) {
+	l := ctxzap.Extract(ctx)
+	l.Debug("creating database", zap.String("dbName", dbName))
+
+	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
+	q := fmt.Sprintf("CREATE DATABASE %s", sanitizedDbName)
+	_, err := c.db.Exec(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetDatabaseByName(ctx, dbName)
+}
+
+func (c *Client) DeleteDatabase(ctx context.Context, dbName string) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("deleting database", zap.String("dbName", dbName))
+
+	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
+	q := fmt.Sprintf("DROP DATABASE %s", sanitizedDbName)
+	_, err := c.db.Exec(ctx, q)
+	return err
 }
