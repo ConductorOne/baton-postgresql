@@ -66,3 +66,8 @@ jobs:
         run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --revoke-grant 'grant:entitlement:role:3375:member:role:3373'
       - name: Grant entitlements
         run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --grant-entitlement 'entitlement:role:3375:member' --grant-principal 'role:3373' --grant-principal-type 'role'
+      - name: Create user
+        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --create-account-login 'testuser'
+      # TODO: get correct role id using baton CLI
+      # - name: Rotate credentials for user
+      #   run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --rotate-credentials 'role:16384' --rotate-credentials-type 'role'
