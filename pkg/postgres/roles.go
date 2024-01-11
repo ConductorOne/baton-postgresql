@@ -145,6 +145,10 @@ func (c *Client) RevokeRole(ctx context.Context, roleName string, target string,
 func (c *Client) CreateRole(ctx context.Context, roleName string) error {
 	l := ctxzap.Extract(ctx)
 
+	if roleName == "" {
+		return errors.New("role name cannot be empty")
+	}
+
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
 	query := "CREATE ROLE " + sanitizedRoleName
 
@@ -156,6 +160,10 @@ func (c *Client) CreateRole(ctx context.Context, roleName string) error {
 func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
 	l := ctxzap.Extract(ctx)
 
+	if roleName == "" {
+		return errors.New("role name cannot be empty")
+	}
+
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
 	query := "DROP ROLE " + sanitizedRoleName
 
@@ -166,6 +174,13 @@ func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
 
 func (c *Client) CreateUser(ctx context.Context, login string, password string) (*RoleModel, error) {
 	l := ctxzap.Extract(ctx)
+
+	if login == "" {
+		return nil, errors.New("login cannot be empty")
+	}
+	if password == "" {
+		return nil, errors.New("password cannot be empty")
+	}
 
 	sanitizedLogin := pgx.Identifier{login}.Sanitize()
 	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD $1", sanitizedLogin)
@@ -181,6 +196,13 @@ func (c *Client) CreateUser(ctx context.Context, login string, password string) 
 
 func (c *Client) ChangePassword(ctx context.Context, userName string, password string) (*RoleModel, error) {
 	l := ctxzap.Extract(ctx)
+
+	if userName == "" {
+		return nil, errors.New("user name cannot be empty")
+	}
+	if password == "" {
+		return nil, errors.New("password cannot be empty")
+	}
 
 	sanitizedUserName := pgx.Identifier{userName}.Sanitize()
 

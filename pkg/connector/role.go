@@ -17,7 +17,7 @@ import (
 var roleResourceType = &v2.ResourceType{
 	Id:          "role",
 	DisplayName: "Role",
-	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE, v2.ResourceType_TRAIT_USER},
 	Annotations: nil,
 }
 
@@ -46,11 +46,27 @@ func (r *roleSyncer) makeResource(ctx context.Context, roleModel *postgres.RoleM
 		annos.Update(gt)
 	}
 
-	ut, err := sdkResource.NewUserTrait(sdkResource.WithStatus(v2.UserTrait_Status_STATUS_ENABLED))
+	traitOptions := []sdkResource.UserTraitOption{
+		sdkResource.WithStatus(v2.UserTrait_Status_STATUS_ENABLED),
+	}
+	if roleModel.Name == "postgres" {
+		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_SYSTEM))
+	} else if roleModel.CanLogin {
+		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_HUMAN))
+	} else {
+		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_SERVICE))
+	}
+	ut, err := sdkResource.NewUserTrait(traitOptions...)
 	if err != nil {
 		return nil, err
 	}
+
 	annos.Update(ut)
+	rt, err := sdkResource.NewRoleTrait()
+	if err != nil {
+		return nil, err
+	}
+	annos.Update(rt)
 
 	return &v2.Resource{
 		DisplayName: roleModel.Name,
