@@ -94,8 +94,8 @@ github.com/cockroachdb/apd v1.1.0 h1:3LFP3629v+1aKXU5Q37mxmRxX/pIu1nijXydLShEq5I
 github.com/cockroachdb/apd v1.1.0/go.mod h1:8Sl8LxpKi29FqWXR16WEFZRNSz3SoPzUzeMeY4+DwBQ=
 github.com/cockroachdb/cockroach-go/v2 v2.2.0 h1:/5znzg5n373N/3ESjHF5SMLxiW4RKB05Ql//KWfeTFs=
 github.com/cockroachdb/cockroach-go/v2 v2.2.0/go.mod h1:u3MiKYGupPPjkn3ozknpMUpxPaNLTFWAya419/zv6eI=
-github.com/conductorone/baton-sdk v0.1.15-0.20240110224615-a1d5146d0f90 h1:kWSDqtRMPM2oDszbLzwwHo4m8elf74mo5iSdTEzXyuY=
-github.com/conductorone/baton-sdk v0.1.15-0.20240110224615-a1d5146d0f90/go.mod h1:nh4xiJxOi2pBPCcsIfH8Xp0Xc5Q1BgmnXmGhrn3Spss=
+github.com/conductorone/baton-sdk v0.1.15-0.20240117174829-7ace6ba80119 h1:7y82ax9VCrOjSeOTFHMAT650E3SJ2HBV0Yt06iiGVQg=
+github.com/conductorone/baton-sdk v0.1.15-0.20240117174829-7ace6ba80119/go.mod h1:nh4xiJxOi2pBPCcsIfH8Xp0Xc5Q1BgmnXmGhrn3Spss=
 github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e/go.mod h1:F5haX7vjVVG0kc13fIWeqUViNPyEJxv/OmvnBo0Yme4=
 github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f/go.mod h1:F5haX7vjVVG0kc13fIWeqUViNPyEJxv/OmvnBo0Yme4=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -49,12 +50,20 @@ func (r *roleSyncer) makeResource(ctx context.Context, roleModel *postgres.RoleM
 	traitOptions := []sdkResource.UserTraitOption{
 		sdkResource.WithStatus(v2.UserTrait_Status_STATUS_ENABLED),
 	}
-	if roleModel.Name == "postgres" {
+
+	switch {
+	case roleModel.Name == "postgres":
 		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_SYSTEM))
-	} else if roleModel.CanLogin {
+	case roleModel.CanLogin:
 		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_HUMAN))
-	} else {
+	default:
 		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_SERVICE))
+	}
+
+	traitOptions = append(traitOptions, sdkResource.WithUserLogin(roleModel.Name))
+	parts := strings.SplitN(roleModel.Name, "@", 2)
+	if len(parts) == 2 {
+		traitOptions = append(traitOptions, sdkResource.WithEmail(roleModel.Name, true))
 	}
 	ut, err := sdkResource.NewUserTrait(traitOptions...)
 	if err != nil {
@@ -219,6 +228,7 @@ func (r *roleSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlem
 	}
 
 	// TODO: pass IDs into client.Grant() and look up the names there
+	// TODO: respect duration if it's provided
 	roleName := entitlement.Resource.DisplayName
 	principalName := principal.DisplayName
 	err := r.client.GrantRole(ctx, roleName, principalName)
@@ -229,7 +239,7 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	entitlement := grant.Entitlement
 	principal := grant.Principal
 
-	_, roleIdStr, isGrant, err := parseEntitlementID(entitlement.Id)
+	_, roleIdStr, _, isGrant, err := parseEntitlementID(entitlement.Id)
 	if err != nil {
 		return nil, err
 	}

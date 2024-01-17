@@ -142,3 +142,26 @@ func (c *Client) DeleteDatabase(ctx context.Context, dbName string) error {
 	_, err := c.db.Exec(ctx, q)
 	return err
 }
+
+func (c *Client) GrantDatabase(ctx context.Context, dbName string, principalName string, privilege string) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting database", zap.String("dbName", dbName), zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	q := fmt.Sprintf("GRANT %s ON DATABASE %s TO %s", privilege, sanitizedDbName, sanitizedPrincipalName)
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
+
+func (c *Client) RevokeDatabase(ctx context.Context, dbName string, target string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+
+	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
+	sanitizedTarget := pgx.Identifier{target}.Sanitize()
+	q := fmt.Sprintf("REVOKE %s ON DATABASE %s FROM %s", privilege, sanitizedDbName, sanitizedTarget)
+
+	l.Debug("revoking role from member", zap.String("query", q))
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
