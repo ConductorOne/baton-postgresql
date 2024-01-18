@@ -227,11 +227,33 @@ func (r *roleSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlem
 		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
 	}
 
-	// TODO: pass IDs into client.Grant() and look up the names there
+	// TODO: respect isGrant
+	_, roleIdStr, _, _, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	roleID, err := strconv.ParseInt(roleIdStr, 10, 64)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	principalId, err := parseObjectID(principal.Id.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pgPrincipal, err := r.client.GetRole(ctx, principalId)
+	if err != nil {
+		return nil, nil, err
+	}
 	// TODO: respect duration if it's provided
-	roleName := entitlement.Resource.DisplayName
-	principalName := principal.DisplayName
-	err := r.client.GrantRole(ctx, roleName, principalName)
+	err = r.client.GrantRole(ctx, pgRole.Name, pgPrincipal.Name)
 	return nil, nil, err
 }
 
