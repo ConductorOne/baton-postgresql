@@ -331,7 +331,6 @@ func (r *roleSyncer) CreateAccount(
 	annotations.Annotations,
 	error,
 ) {
-
 	roleModel, err := r.client.GetRoleByName(ctx, accountInfo.GetLogin())
 	if err == nil {
 		// user already exists. return that resource
