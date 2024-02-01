@@ -286,7 +286,7 @@ func (r *roleSyncer) Rotate(
 	resourceId *v2.ResourceId,
 	credentialOptions *v2.CredentialOptions,
 ) (
-	[]*crypto.PlaintextCredential,
+	[]*v2.PlaintextData,
 	annotations.Annotations,
 	error,
 ) {
@@ -304,21 +304,21 @@ func (r *roleSyncer) Rotate(
 		return nil, nil, err
 	}
 
-	plainTextCredential, err := crypto.GeneratePassword(credentialOptions)
+	plainTextPassword, err := crypto.GeneratePassword(credentialOptions)
 	if err != nil {
 		return nil, nil, err
 	}
-	ptc := &crypto.PlaintextCredential{
+	ptd := &v2.PlaintextData{
 		Name:  "password",
-		Bytes: []byte(plainTextCredential),
+		Bytes: []byte(plainTextPassword),
 	}
 
-	_, err = r.client.ChangePassword(ctx, pgRole.Name, plainTextCredential)
+	_, err = r.client.ChangePassword(ctx, pgRole.Name, plainTextPassword)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return []*crypto.PlaintextCredential{ptc}, nil, nil
+	return []*v2.PlaintextData{ptd}, nil, nil
 }
 
 func (r *roleSyncer) CreateAccount(
@@ -327,19 +327,34 @@ func (r *roleSyncer) CreateAccount(
 	credentialOptions *v2.CredentialOptions,
 ) (
 	connectorbuilder.CreateAccountResponse,
-	[]*crypto.PlaintextCredential,
+	[]*v2.PlaintextData,
 	annotations.Annotations,
 	error,
 ) {
-	plainTextCredential, err := crypto.GeneratePassword(credentialOptions)
+
+	roleModel, err := r.client.GetRoleByName(ctx, accountInfo.GetLogin())
+	if err == nil {
+		// user already exists. return that resource
+		resource, err := r.makeResource(ctx, roleModel)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		car := &v2.CreateAccountResponse_SuccessResult{
+			Resource: resource,
+		}
+
+		return car, []*v2.PlaintextData{}, nil, nil
+	}
+
+	plainTextPassword, err := crypto.GeneratePassword(credentialOptions)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ptc := &crypto.PlaintextCredential{
+	ptd := &v2.PlaintextData{
 		Name:  "password",
-		Bytes: []byte(plainTextCredential),
+		Bytes: []byte(plainTextPassword),
 	}
-	roleModel, err := r.client.CreateUser(ctx, accountInfo.GetLogin(), plainTextCredential)
+	roleModel, err = r.client.CreateUser(ctx, accountInfo.GetLogin(), plainTextPassword)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -353,7 +368,7 @@ func (r *roleSyncer) CreateAccount(
 		Resource: resource,
 	}
 
-	return car, []*crypto.PlaintextCredential{ptc}, nil, nil
+	return car, []*v2.PlaintextData{ptd}, nil, nil
 }
 
 func newRoleSyncer(ctx context.Context, c *postgres.Client) *roleSyncer {
