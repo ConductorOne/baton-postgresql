@@ -3,12 +3,14 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -47,11 +49,15 @@ type CreateAccountResponse interface {
 }
 
 type AccountManager interface {
-	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error)
+	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
-	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*crypto.PlaintextCredential, annotations.Annotations, error)
+	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
+}
+
+type EventProvider interface {
+	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
 }
 
 type ConnectorBuilder interface {
@@ -67,6 +73,7 @@ type builderImpl struct {
 	resourceManagers       map[string]ResourceManager
 	accountManager         AccountManager
 	credentialManagers     map[string]CredentialManager
+	eventFeed              EventProvider
 	cb                     ConnectorBuilder
 }
 
@@ -82,6 +89,10 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			accountManager:         nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
+		}
+
+		if b, ok := c.(EventProvider); ok {
+			ret.eventFeed = b
 		}
 
 		for _, rb := range c.ResourceSyncers(ctx) {
@@ -255,6 +266,9 @@ func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilit
 		}
 		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
 	}
+	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
+		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
+	})
 	return &v2.ConnectorCapabilities{ResourceTypeCapabilities: resourceTypeCapabilities}
 }
 
@@ -332,6 +346,25 @@ func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v
 	return nil
 }
 
+func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
+	if b.eventFeed == nil {
+		return nil, fmt.Errorf("error: event feed not implemented")
+	}
+	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
+		Size:   int(request.PageSize),
+		Cursor: request.Cursor,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error: listing events failed: %w", err)
+	}
+	return &v2.ListEventsResponse{
+		Events:      events,
+		Cursor:      streamState.Cursor,
+		HasMore:     streamState.HasMore,
+		Annotations: annotations,
+	}, nil
+}
+
 func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResource().GetId().GetResourceType()
@@ -373,21 +406,21 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
-	plaintextCredentials, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
+	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
 
-	pkem, err := crypto.NewPubKeyEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
 	var encryptedDatas []*v2.EncryptedData
-	for _, plaintextCredential := range plaintextCredentials {
-		encryptedData, err := pkem.Encrypt(plaintextCredential)
+	for _, plaintextCredential := range plaintexts {
+		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			return nil, err
 		}
@@ -407,21 +440,21 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		l.Error("error: connector does not have account manager configured")
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
-	result, plaintextCredentials, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		return nil, fmt.Errorf("error: create account failed: %w", err)
 	}
 
-	pkem, err := crypto.NewPubKeyEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
 	var encryptedDatas []*v2.EncryptedData
-	for _, plaintextCredential := range plaintextCredentials {
-		encryptedData, err := pkem.Encrypt(plaintextCredential)
+	for _, plaintextCredential := range plaintexts {
+		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			return nil, err
 		}

@@ -3,7 +3,7 @@ module github.com/conductorone/baton-postgresql
 go 1.20
 
 require (
-	github.com/conductorone/baton-sdk v0.1.15
+	github.com/conductorone/baton-sdk v0.1.19-0.20240201003322-411bbc528c2d
 	github.com/georgysavva/scany v1.2.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jackc/pgx/v4 v4.18.1
@@ -11,6 +11,8 @@ require (
 )
 
 require (
+	filippo.io/age v1.1.1 // indirect
+	filippo.io/edwards25519 v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.23.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.5.1 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.25.3 // indirect
