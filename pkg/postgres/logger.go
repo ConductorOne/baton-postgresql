@@ -16,7 +16,7 @@ func (log *Logger) Zap2PgxLogLevel(level zapcore.Level) pgx.LogLevel {
 	case zapcore.DebugLevel:
 		return pgx.LogLevelDebug
 	case zapcore.InfoLevel:
-		return pgx.LogLevelInfo
+		return pgx.LogLevelWarn
 	case zapcore.WarnLevel:
 		return pgx.LogLevelWarn
 	case zapcore.ErrorLevel:
