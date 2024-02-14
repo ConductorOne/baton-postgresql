@@ -5,6 +5,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jackc/pgx/v4"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -49,6 +50,5 @@ func (log *Logger) Pgx2ZapLogLevel(level pgx.LogLevel) zapcore.Level {
 
 func (log *Logger) Log(ctx context.Context, level pgx.LogLevel, msg string, data map[string]interface{}) {
 	l := ctxzap.Extract(ctx)
-	// TODO: log data
-	l.Log(log.Pgx2ZapLogLevel(level), msg)
+	l.Log(log.Pgx2ZapLogLevel(level), msg, zap.Reflect("data", data))
 }
