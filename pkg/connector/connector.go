@@ -51,12 +51,18 @@ func (c *Postgresql) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.
 }
 
 func New(ctx context.Context, dsn string, schemas []string, includeColumns bool, includeLargeObjects bool) (*Postgresql, error) {
-	c, err := postgres.New(ctx, dsn, postgres.WithSchemaFilter(schemas))
-	if err != nil {
-		return nil, err
+	var client *postgres.Client = nil
+
+	if dsn != "" {
+		c, err := postgres.New(ctx, dsn, postgres.WithSchemaFilter(schemas))
+		if err != nil {
+			return nil, err
+		}
+		client = c
 	}
+
 	return &Postgresql{
-		client:              c,
+		client:              client,
 		schemas:             schemas,
 		includeColumns:      includeColumns,
 		includeLargeObjects: includeLargeObjects,
