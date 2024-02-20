@@ -1,0 +1,99 @@
+{
+  "@type": "type.googleapis.com/c1.connector.v2.ConnectorCapabilities",
+  "resourceTypeCapabilities": [
+    {
+      "resourceType": {
+        "id": "column",
+        "displayName": "Column"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "database",
+        "displayName": "Database"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "function",
+        "displayName": "Function"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "large-object",
+        "displayName": "Large Object"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "procedure",
+        "displayName": "Procedure"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "role",
+        "displayName": "Role",
+        "traits": [
+          "TRAIT_ROLE",
+          "TRAIT_USER"
+        ]
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "schema",
+        "displayName": "Schema"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "sequence",
+        "displayName": "Sequence"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "table",
+        "displayName": "Table"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    },
+    {
+      "resourceType": {
+        "id": "view",
+        "displayName": "View"
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ]
+    }
+  ]
+}
