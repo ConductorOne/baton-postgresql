@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -26,6 +27,21 @@ func (r *databaseSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
 	return databaseResourceType
 }
 
+func (r *databaseSyncer) makeResource(ctx context.Context, dbModel *postgres.DatabaseModel) *v2.Resource {
+	var annos annotations.Annotations
+
+	annos.Append(&v2.ChildResourceType{ResourceTypeId: schemaResourceType.Id})
+
+	return &v2.Resource{
+		DisplayName: dbModel.Name,
+		Id: &v2.ResourceId{
+			ResourceType: r.resourceType.Id,
+			Resource:     formatObjectID(r.resourceType.Id, dbModel.ID),
+		},
+		Annotations: annos,
+	}
+}
+
 func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var err error
 
@@ -40,19 +56,7 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 
 	var ret []*v2.Resource
 	for _, o := range databases {
-		var annos annotations.Annotations
-
-		annos.Append(&v2.ChildResourceType{ResourceTypeId: schemaResourceType.Id})
-
-		ret = append(ret, &v2.Resource{
-			DisplayName: o.Name,
-			Id: &v2.ResourceId{
-				ResourceType: r.resourceType.Id,
-				Resource:     formatObjectID(r.resourceType.Id, o.ID),
-			},
-			ParentResourceId: parentResourceID,
-			Annotations:      annos,
-		})
+		ret = append(ret, r.makeResource(ctx, o))
 	}
 
 	return ret, nextPageToken, nil, nil
@@ -208,6 +212,75 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 	}
 
 	return ret, nextPageToken, nil, nil
+}
+
+func (r *databaseSyncer) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
+	if resource.Id.ResourceType != databaseResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: non-database resource passed to database create")
+	}
+
+	dbName := resource.GetDisplayName()
+	dbModel, err := r.client.CreateDatabase(ctx, dbName)
+	if err != nil {
+		return nil, nil, err
+	}
+	dbResource := r.makeResource(ctx, dbModel)
+	return dbResource, nil, nil
+}
+
+func (r *databaseSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {
+	if resourceId.ResourceType != databaseResourceType.Id {
+		return nil, fmt.Errorf("baton-postgres: non-database resource passed to database delete")
+	}
+
+	dbId, err := parseObjectID(resourceId.Resource)
+	if err != nil {
+		return nil, err
+	}
+
+	pgDb, err := r.client.GetDatabase(ctx, dbId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.client.DeleteDatabase(ctx, pgDb.Name)
+	return nil, err
+}
+
+func (r *databaseSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	if principal.Id.ResourceType != databaseResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+	}
+
+	// TODO: pass IDs into client.Grant() and look up the names there
+	dbName := entitlement.Resource.DisplayName
+	principalName := principal.DisplayName
+	err := r.client.GrantDatabase(ctx, dbName, principalName, entitlement.GetDisplayName())
+	return nil, nil, err
+}
+
+func (r *databaseSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	entitlement := grant.Entitlement
+	principal := grant.Principal
+
+	_, dbIdStr, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	dbID, err := strconv.ParseInt(dbIdStr, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	pgDb, err := r.client.GetDatabase(ctx, dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	principalName := principal.DisplayName
+	err = r.client.RevokeDatabase(ctx, pgDb.Name, principalName, privilegeName, isGrant)
+	return nil, err
 }
 
 func newDatabaseSyncer(ctx context.Context, c *postgres.Client) *databaseSyncer {

@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	sdkResource "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -15,7 +18,7 @@ import (
 var roleResourceType = &v2.ResourceType{
 	Id:          "role",
 	DisplayName: "Role",
-	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE, v2.ResourceType_TRAIT_USER},
 	Annotations: nil,
 }
 
@@ -28,9 +31,66 @@ func (r *roleSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
 	return roleResourceType
 }
 
+func (r *roleSyncer) makeResource(ctx context.Context, roleModel *postgres.RoleModel) (*v2.Resource, error) {
+	var annos annotations.Annotations
+
+	hasMembers, err := r.client.RoleHasMembers(ctx, roleModel.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasMembers {
+		gt, err := sdkResource.NewGroupTrait()
+		if err != nil {
+			return nil, err
+		}
+		annos.Update(gt)
+	}
+
+	traitOptions := []sdkResource.UserTraitOption{
+		sdkResource.WithStatus(v2.UserTrait_Status_STATUS_ENABLED),
+	}
+
+	switch {
+	case roleModel.Name == "postgres":
+		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_SYSTEM))
+	case roleModel.CanLogin:
+		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_HUMAN))
+	default:
+		traitOptions = append(traitOptions, sdkResource.WithAccountType(v2.UserTrait_ACCOUNT_TYPE_SERVICE))
+	}
+
+	traitOptions = append(traitOptions, sdkResource.WithUserLogin(roleModel.Name))
+	parts := strings.SplitN(roleModel.Name, "@", 2)
+	if len(parts) == 2 {
+		traitOptions = append(traitOptions, sdkResource.WithEmail(roleModel.Name, true))
+	}
+	ut, err := sdkResource.NewUserTrait(traitOptions...)
+	if err != nil {
+		return nil, err
+	}
+
+	annos.Update(ut)
+	rt, err := sdkResource.NewRoleTrait()
+	if err != nil {
+		return nil, err
+	}
+	annos.Update(rt)
+
+	return &v2.Resource{
+		DisplayName: roleModel.Name,
+		Id: &v2.ResourceId{
+			ResourceType: r.resourceType.Id,
+			Resource:     formatObjectID(r.resourceType.Id, roleModel.ID),
+		},
+		Annotations: annos,
+	}, nil
+}
+
 func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var err error
 
+	// if we ever support parentResourceID, be sure to set it in makeResource
 	if parentResourceID != nil {
 		return nil, "", nil, fmt.Errorf("unexpected parent resource ID on role: %s", parentResourceID)
 	}
@@ -42,36 +102,11 @@ func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, 
 
 	var ret []*v2.Resource
 	for _, o := range roles {
-		var annos annotations.Annotations
-
-		hasMembers, err := r.client.RoleHasMembers(ctx, o.ID)
+		resource, err := r.makeResource(ctx, o)
 		if err != nil {
 			return nil, "", nil, err
 		}
-
-		if hasMembers {
-			gt, err := sdkResource.NewGroupTrait()
-			if err != nil {
-				return nil, "", nil, err
-			}
-			annos.Update(gt)
-		}
-
-		ut, err := sdkResource.NewUserTrait(sdkResource.WithStatus(v2.UserTrait_Status_STATUS_ENABLED))
-		if err != nil {
-			return nil, "", nil, err
-		}
-		annos.Update(ut)
-
-		ret = append(ret, &v2.Resource{
-			DisplayName: o.Name,
-			Id: &v2.ResourceId{
-				ResourceType: r.resourceType.Id,
-				Resource:     formatObjectID(r.resourceType.Id, o.ID),
-			},
-			ParentResourceId: parentResourceID,
-			Annotations:      annos,
-		})
+		ret = append(ret, resource)
 	}
 
 	return ret, nextPageToken, nil, nil
@@ -164,14 +199,61 @@ func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 	return ret, nextPageToken, nil, nil
 }
 
+func (r *roleSyncer) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
+	return nil, nil, fmt.Errorf("baton-postgres: role creation not supported")
+}
+
+func (r *roleSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {
+	if resourceId.ResourceType != roleResourceType.Id {
+		return nil, fmt.Errorf("baton-postgres: non-role/user resource passed to role delete")
+	}
+
+	roleId, err := parseObjectID(resourceId.Resource)
+	if err != nil {
+		return nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.client.DeleteRole(ctx, pgRole.Name)
+	return nil, err
+}
+
 func (r *roleSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	if principal.Id.ResourceType != roleResourceType.Id {
 		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
 	}
 
-	roleName := entitlement.Resource.DisplayName
-	principalName := principal.DisplayName
-	err := r.client.Grant(ctx, roleName, principalName)
+	// TODO: respect isGrant
+	_, roleIdStr, _, _, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	roleID, err := strconv.ParseInt(roleIdStr, 10, 64)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	principalId, err := parseObjectID(principal.Id.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pgPrincipal, err := r.client.GetRole(ctx, principalId)
+	if err != nil {
+		return nil, nil, err
+	}
+	// TODO: respect duration if it's provided
+	err = r.client.GrantRole(ctx, pgRole.Name, pgPrincipal.Name)
 	return nil, nil, err
 }
 
@@ -179,7 +261,7 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	entitlement := grant.Entitlement
 	principal := grant.Principal
 
-	_, roleIdStr, isGrant, err := parseEntitlementID(entitlement.Id)
+	_, roleIdStr, _, isGrant, err := parseEntitlementID(entitlement.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -195,8 +277,97 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	}
 
 	principalName := principal.DisplayName
-	err = r.client.Revoke(ctx, pgRole.Name, principalName, isGrant)
+	err = r.client.RevokeRole(ctx, pgRole.Name, principalName, isGrant)
 	return nil, err
+}
+
+func (r *roleSyncer) Rotate(
+	ctx context.Context,
+	resourceId *v2.ResourceId,
+	credentialOptions *v2.CredentialOptions,
+) (
+	[]*v2.PlaintextData,
+	annotations.Annotations,
+	error,
+) {
+	if resourceId.ResourceType != roleResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: non-role/user resource passed to rotate credentials")
+	}
+
+	roleId, err := parseObjectID(resourceId.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pgRole, err := r.client.GetRole(ctx, roleId)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	plainTextPassword, err := crypto.GeneratePassword(credentialOptions)
+	if err != nil {
+		return nil, nil, err
+	}
+	ptd := &v2.PlaintextData{
+		Name:  "password",
+		Bytes: []byte(plainTextPassword),
+	}
+
+	_, err = r.client.ChangePassword(ctx, pgRole.Name, plainTextPassword)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return []*v2.PlaintextData{ptd}, nil, nil
+}
+
+func (r *roleSyncer) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	credentialOptions *v2.CredentialOptions,
+) (
+	connectorbuilder.CreateAccountResponse,
+	[]*v2.PlaintextData,
+	annotations.Annotations,
+	error,
+) {
+	roleModel, err := r.client.GetRoleByName(ctx, accountInfo.GetLogin())
+	if err == nil {
+		// user already exists. return that resource
+		resource, err := r.makeResource(ctx, roleModel)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		car := &v2.CreateAccountResponse_SuccessResult{
+			Resource: resource,
+		}
+
+		return car, []*v2.PlaintextData{}, nil, nil
+	}
+
+	plainTextPassword, err := crypto.GeneratePassword(credentialOptions)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ptd := &v2.PlaintextData{
+		Name:  "password",
+		Bytes: []byte(plainTextPassword),
+	}
+	roleModel, err = r.client.CreateUser(ctx, accountInfo.GetLogin(), plainTextPassword)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	resource, err := r.makeResource(ctx, roleModel)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	car := &v2.CreateAccountResponse_SuccessResult{
+		Resource: resource,
+	}
+
+	return car, []*v2.PlaintextData{ptd}, nil, nil
 }
 
 func newRoleSyncer(ctx context.Context, c *postgres.Client) *roleSyncer {

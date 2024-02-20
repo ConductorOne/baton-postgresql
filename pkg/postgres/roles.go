@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -48,7 +49,7 @@ func (c *Client) RoleHasMembers(ctx context.Context, roleID int64) (bool, error)
 	return ret, nil
 }
 
-func (c *Client) GetRoleByName(ctx context.Context, roleID string) (*RoleModel, error) {
+func (c *Client) GetRoleByName(ctx context.Context, roleName string) (*RoleModel, error) {
 	q := `
 SELECT r."rolname",
        r."rolsuper",
@@ -72,7 +73,7 @@ WHERE r."rolname" = $1
 `
 
 	role := &RoleModel{}
-	err := pgxscan.Get(ctx, c.db, role, q, roleID)
+	err := pgxscan.Get(ctx, c.db, role, q, roleName)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,7 @@ WHERE r."oid" = $1
 	return role, nil
 }
 
-func (c *Client) Grant(ctx context.Context, roleName string, principalName string) error {
+func (c *Client) GrantRole(ctx context.Context, roleName string, principalName string) error {
 	l := ctxzap.Extract(ctx)
 
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
@@ -124,7 +125,7 @@ func (c *Client) Grant(ctx context.Context, roleName string, principalName strin
 	return err
 }
 
-func (c *Client) Revoke(ctx context.Context, roleName string, target string, isGrant bool) error {
+func (c *Client) RevokeRole(ctx context.Context, roleName string, target string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
@@ -139,6 +140,81 @@ func (c *Client) Revoke(ctx context.Context, roleName string, target string, isG
 	l.Debug("revoking role from member", zap.String("query", query))
 	_, err := c.db.Exec(ctx, query)
 	return err
+}
+
+func (c *Client) CreateRole(ctx context.Context, roleName string) error {
+	l := ctxzap.Extract(ctx)
+
+	if roleName == "" {
+		return errors.New("role name cannot be empty")
+	}
+
+	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
+	query := "CREATE ROLE " + sanitizedRoleName
+
+	l.Debug("creating role", zap.String("query", query))
+	_, err := c.db.Exec(ctx, query)
+	return err
+}
+
+func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
+	l := ctxzap.Extract(ctx)
+
+	if roleName == "" {
+		return errors.New("role name cannot be empty")
+	}
+
+	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
+	query := "DROP ROLE " + sanitizedRoleName
+
+	l.Debug("deleting role", zap.String("query", query))
+	_, err := c.db.Exec(ctx, query)
+	return err
+}
+
+func (c *Client) CreateUser(ctx context.Context, login string, password string) (*RoleModel, error) {
+	l := ctxzap.Extract(ctx)
+
+	if login == "" {
+		return nil, errors.New("login cannot be empty")
+	}
+	if password == "" {
+		return nil, errors.New("password cannot be empty")
+	}
+
+	sanitizedLogin := pgx.Identifier{login}.Sanitize()
+	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD $1", sanitizedLogin)
+
+	l.Debug("creating user", zap.String("query", query))
+
+	_, err := c.db.Exec(ctx, query, pgx.QuerySimpleProtocol(true), password)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetRoleByName(ctx, login)
+}
+
+func (c *Client) ChangePassword(ctx context.Context, userName string, password string) (*RoleModel, error) {
+	l := ctxzap.Extract(ctx)
+
+	if userName == "" {
+		return nil, errors.New("user name cannot be empty")
+	}
+	if password == "" {
+		return nil, errors.New("password cannot be empty")
+	}
+
+	sanitizedUserName := pgx.Identifier{userName}.Sanitize()
+
+	query := fmt.Sprintf("ALTER USER %s WITH PASSWORD $1", sanitizedUserName)
+
+	l.Debug("changing password for user", zap.String("query", query))
+
+	_, err := c.db.Exec(ctx, query, pgx.QuerySimpleProtocol(true), password)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetRoleByName(ctx, userName)
 }
 
 func (c *Client) ListRoleMembers(ctx context.Context, roleID int64, pager *Pager) ([]*RoleModel, string, error) {

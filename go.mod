@@ -3,7 +3,7 @@ module github.com/conductorone/baton-postgresql
 go 1.20
 
 require (
-	github.com/conductorone/baton-sdk v0.1.13
+	github.com/conductorone/baton-sdk v0.1.19-0.20240201003322-411bbc528c2d
 	github.com/georgysavva/scany v1.2.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jackc/pgx/v4 v4.18.1
@@ -11,6 +11,8 @@ require (
 )
 
 require (
+	filippo.io/age v1.1.1 // indirect
+	filippo.io/edwards25519 v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.23.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.5.1 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.25.3 // indirect
@@ -77,12 +79,12 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/ratelimit v0.3.0 // indirect
-	golang.org/x/crypto v0.15.0 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.18.0 // indirect
 	golang.org/x/oauth2 v0.14.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
-	golang.org/x/sys v0.14.0 // indirect
+	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231106174013-bbf56f31fb17 // indirect
