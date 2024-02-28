@@ -66,7 +66,7 @@ jobs:
       #     PGPASSWORD: secretpassword 
       #   run: psql -h localhost --user postgres -f test/ci.sql
       - name: Install baton
-        run: wget https://github.com/ConductorOne/baton/releases/download/v0.1.2/baton-v0.1.2-linux-amd64.tar.gz && tar xzf baton-v0.1.2-linux-amd64.tar.gz && mv baton /usr/local/bin
+        run: ./scripts/get-baton.sh && mv baton /usr/local/bin
       - name: Build baton-postgresql
         run: go build ./cmd/baton-postgresql
       - name: Run baton-postgresql
