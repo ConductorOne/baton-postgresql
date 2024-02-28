@@ -7,7 +7,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.20.x
+          go-version: 1.22.x
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Run linters
@@ -18,7 +18,7 @@ jobs:
   go-test:
     strategy:
       matrix:
-        go-version: [1.20.x]
+        go-version: [1.22.x]
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
@@ -45,29 +45,53 @@ jobs:
           - "5432:5432"
         env:
           POSTGRES_PASSWORD: secretpassword
+    env:
+      BATON_LOG_LEVEL: debug
+      BATON_DSN: 'postgres://postgres:secretpassword@localhost:5432/postgres'
+      CONNECTOR_GRANT: 'grant:entitlement:role:3375:member:role:10'
+      CONNECTOR_ENTITLEMENT: 'entitlement:role:3375:member'
+      CONNECTOR_PRINCIPAL: 'role:10'
+      CONNECTOR_PRINCIPAL_TYPE: 'role'
     steps:
       - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.20.x
+          go-version: 1.22.x
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Install postgres client
         run: sudo apt install postgresql-client
       # - name: Import sql into postgres
-      #   run: psql -h localhost --user postgres -f environment.sql
       #   env:
       #     PGPASSWORD: secretpassword 
+      #   run: psql -h localhost --user postgres -f test/ci.sql
+      - name: Install baton
+        run: wget https://github.com/ConductorOne/baton/releases/download/v0.1.2/baton-v0.1.2-linux-amd64.tar.gz && tar xzf baton-v0.1.2-linux-amd64.tar.gz && mv baton /usr/local/bin
       - name: Build baton-postgresql
         run: go build ./cmd/baton-postgresql
       - name: Run baton-postgresql
-        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres'
-      - name: Revoke grants
-        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --revoke-grant 'grant:entitlement:role:3375:member:role:3373'
-      - name: Grant entitlements
-        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --grant-entitlement 'entitlement:role:3375:member' --grant-principal 'role:3373' --grant-principal-type 'role'
+        run: ./baton-postgresql
+
+      - name: Grant entitlement
+        run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.CONNECTOR_PRINCIPAL }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
+
+      - name: Check grant was granted
+        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${{ env.CONNECTOR_PRINCIPAL }}\""
+
+      - name: Revoke grant
+        run: ./baton-postgresql --revoke-grant "${{ env.CONNECTOR_GRANT }}"
+
+      - name: Check grant was revoked
+        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status "if .grants then .grants[]?.principal.id.resource != \"${{ env.CONNECTOR_PRINCIPAL }}\" else . end"
+
+      - name: Grant entitlement
+        run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.CONNECTOR_PRINCIPAL }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
+
+      - name: Check grant was re-granted
+        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${{ env.CONNECTOR_PRINCIPAL }}\""
+
       - name: Create user
-        run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --create-account-login 'testuser'
+        run: ./baton-postgresql --create-account-login 'testuser'
       # TODO: get correct role id using baton CLI
       # - name: Rotate credentials for user
-      #   run: ./baton-postgresql --log-level=debug --dsn 'postgres://postgres:secretpassword@localhost:5432/postgres' --rotate-credentials 'role:16384' --rotate-credentials-type 'role'
+      #   run: ./baton-postgresql --rotate-credentials 'role:16384' --rotate-credentials-type 'role'
