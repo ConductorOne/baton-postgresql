@@ -74,14 +74,14 @@ jobs:
         run: ./baton-postgresql --revoke-grant="${{ env.CONNECTOR_GRANT }}"
 
       - name: Check grant was revoked
-        ./baton-postgresql && ./baton/baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status "if .grants then .grants[]?.principal.id.resource != \"${CONNECTOR_PRINCIPAL}\" else . end"
+        run: ./baton-postgresql && ./baton/baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status "if .grants then .grants[]?.principal.id.resource != \"${{ env.CONNECTOR_PRINCIPAL }}\" else . end"
 
       - name: Grant entitlements
         run: ./baton-postgresql --grant-entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal="${{ env.CONNECTOR_PRINCIPAL }}" --grant-principal-type="${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
 
       - name: Check grant was re-granted
         run:
-          ./baton/baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${CONNECTOR_PRINCIPAL}\""
+          ./baton/baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${{ env.CONNECTOR_PRINCIPAL }}\""
 
       - name: Create user
         run: ./baton-postgresql --create-account-login 'testuser'
