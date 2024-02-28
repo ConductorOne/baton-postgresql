@@ -46,7 +46,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: secretpassword
     env:
-      LOG_LEVEL: debug
+      BATON_LOG_LEVEL: debug
       BATON_DSN: 'postgres://postgres:secretpassword@localhost:5432/postgres'
       CONNECTOR_GRANT: 'grant:entitlement:role:3375:member:role:3373'
       CONNECTOR_ENTITLEMENT: 'entitlement:role:3375:member'
@@ -65,6 +65,8 @@ jobs:
       #   run: psql -h localhost --user postgres -f environment.sql
       #   env:
       #     PGPASSWORD: secretpassword 
+      - name: Install baton
+        run: wget https://github.com/ConductorOne/baton/releases/download/v0.1.2/baton-v0.1.2-linux-amd64.tar.gz && tar xzf baton-v0.1.2-linux-amd64.tar.gz && mv baton /usr/local/bin
       - name: Build baton-postgresql
         run: go build ./cmd/baton-postgresql
       - name: Run baton-postgresql
@@ -74,14 +76,14 @@ jobs:
         run: ./baton-postgresql --revoke-grant="${{ env.CONNECTOR_GRANT }}"
 
       - name: Check grant was revoked
-        run: ./baton-postgresql && ./baton/baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status "if .grants then .grants[]?.principal.id.resource != \"${{ env.CONNECTOR_PRINCIPAL }}\" else . end"
+        run: ./baton-postgresql && baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status "if .grants then .grants[]?.principal.id.resource != \"${{ env.CONNECTOR_PRINCIPAL }}\" else . end"
 
       - name: Grant entitlements
         run: ./baton-postgresql --grant-entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal="${{ env.CONNECTOR_PRINCIPAL }}" --grant-principal-type="${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
 
       - name: Check grant was re-granted
         run:
-          ./baton/baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${{ env.CONNECTOR_PRINCIPAL }}\""
+          baton grants --entitlement="${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${{ env.CONNECTOR_PRINCIPAL }}\""
 
       - name: Create user
         run: ./baton-postgresql --create-account-login 'testuser'
