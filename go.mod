@@ -1,9 +1,9 @@
 module github.com/conductorone/baton-postgresql
 
-go 1.20
+go 1.22
 
 require (
-	github.com/conductorone/baton-sdk v0.1.22
+	github.com/conductorone/baton-sdk v0.1.33
 	github.com/georgysavva/scany v1.2.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jackc/pgx/v4 v4.18.1
