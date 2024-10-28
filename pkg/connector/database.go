@@ -248,14 +248,29 @@ func (r *databaseSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId) 
 }
 
 func (r *databaseSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
-	if principal.Id.ResourceType != databaseResourceType.Id {
+	if principal.Id.ResourceType != roleResourceType.Id {
 		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
 	}
 
-	// TODO: pass IDs into client.Grant() and look up the names there
-	dbName := entitlement.Resource.DisplayName
+	// Parse the Entitlement ID to get the database ID and privilege name
+	_, dbIdStr, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbID, err := strconv.ParseInt(dbIdStr, 10, 64)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Look up the database by ID
+	pgDb, err := r.client.GetDatabase(ctx, dbID)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	principalName := principal.DisplayName
-	err := r.client.GrantDatabase(ctx, dbName, principalName, entitlement.GetDisplayName())
+	err = r.client.GrantDatabase(ctx, pgDb.Name, principalName, privilegeName, isGrant)
 	return nil, nil, err
 }
 
