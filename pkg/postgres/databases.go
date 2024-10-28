@@ -143,13 +143,24 @@ func (c *Client) DeleteDatabase(ctx context.Context, dbName string) error {
 	return err
 }
 
-func (c *Client) GrantDatabase(ctx context.Context, dbName string, principalName string, privilege string) error {
+func transformPrivilege(privilege string) string {
+	return strings.ReplaceAll(privilege, "-", "")
+}
+
+func (c *Client) GrantDatabase(ctx context.Context, dbName string, principalName string, privilege string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("granting database", zap.String("dbName", dbName), zap.String("principalName", principalName), zap.String("privilege", privilege))
 
 	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
-	q := fmt.Sprintf("GRANT %s ON DATABASE %s TO %s", privilege, sanitizedDbName, sanitizedPrincipalName)
+	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+	var q string
+	if isGrant {
+		q = fmt.Sprintf("GRANT %s ON DATABASE %s TO %s WITH GRANT OPTION", sanitizedPrivilege, sanitizedDbName, sanitizedPrincipalName)
+	} else {
+		q = fmt.Sprintf("GRANT %s ON DATABASE %s TO %s", sanitizedPrivilege, sanitizedDbName, sanitizedPrincipalName)
+	}
+
 	_, err := c.db.Exec(ctx, q)
 	return err
 }
@@ -159,7 +170,13 @@ func (c *Client) RevokeDatabase(ctx context.Context, dbName string, target strin
 
 	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
 	sanitizedTarget := pgx.Identifier{target}.Sanitize()
-	q := fmt.Sprintf("REVOKE %s ON DATABASE %s FROM %s", privilege, sanitizedDbName, sanitizedTarget)
+	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+	var q string
+	if isGrant {
+		q = fmt.Sprintf("REVOKE GRANT OPTION for %s ON DATABASE %s FROM %s", sanitizedPrivilege, sanitizedDbName, sanitizedTarget)
+	} else {
+		q = fmt.Sprintf("REVOKE %s ON DATABASE %s FROM %s", sanitizedPrivilege, sanitizedDbName, sanitizedTarget)
+	}
 
 	l.Debug("revoking role from member", zap.String("query", q))
 	_, err := c.db.Exec(ctx, q)
