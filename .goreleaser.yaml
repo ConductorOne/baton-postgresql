@@ -36,7 +36,7 @@ builds:
     hooks:
       post:
         - gon .gon-arm64.json
-        - mv dist/baton-postgresql-darwin-arm64.signed.zip dist/macos-arm64_darwin_arm64/baton-postgresql
+        - mv dist/baton-postgresql-darwin-arm64.signed.zip dist/macos-arm64_darwin_arm64_v8.0/baton-postgresql
 archives:
   - id: linux-archive
     builds:

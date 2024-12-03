@@ -1,5 +1,5 @@
 {
-  "source": ["./dist/macos-arm64_darwin_arm64/baton-postgresql"],
+  "source": ["./dist/macos-arm64_darwin_arm64_v8.0/baton-postgresql"],
   "bundle_id": "com.conductorone.baton.postgresql",
   "apple_id": {
     "username" : "justin.gallardo@conductorone.com"
