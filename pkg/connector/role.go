@@ -281,6 +281,13 @@ func (r *roleSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	return nil, err
 }
 
+func (r *roleSyncer) RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error) {
+	return &v2.CredentialDetailsCredentialRotation{
+		SupportedCredentialOptions: []v2.CapabilityDetailCredentialOption{v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD},
+		PreferredCredentialOption:  v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD,
+	}, nil, nil
+}
+
 func (r *roleSyncer) Rotate(
 	ctx context.Context,
 	resourceId *v2.ResourceId,
@@ -319,6 +326,13 @@ func (r *roleSyncer) Rotate(
 	}
 
 	return []*v2.PlaintextData{ptd}, nil, nil
+}
+
+func (r *roleSyncer) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return &v2.CredentialDetailsAccountProvisioning{
+		SupportedCredentialOptions: []v2.CapabilityDetailCredentialOption{v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD},
+		PreferredCredentialOption:  v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD,
+	}, nil, nil
 }
 
 func (r *roleSyncer) CreateAccount(
