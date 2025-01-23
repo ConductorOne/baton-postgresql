@@ -44,7 +44,7 @@ func (c *Postgresql) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error
 				"email": {
 					DisplayName: "email",
 					Required:    true,
-					Description: "email address",
+					Description: "This email will be used as the login for the user.",
 					Field:       &v2.ConnectorAccountCreationSchema_Field_StringField{},
 				},
 			},
