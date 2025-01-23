@@ -39,6 +39,16 @@ func (c *Postgresql) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error
 	return &v2.ConnectorMetadata{
 		DisplayName: "Postgresql",
 		Annotations: annos,
+		AccountCreationSchema: &v2.ConnectorAccountCreationSchema{
+			FieldMap: map[string]*v2.ConnectorAccountCreationSchema_Field{
+				"email": {
+					DisplayName: "email",
+					Required:    true,
+					Description: "email address",
+					Field:       &v2.ConnectorAccountCreationSchema_Field_StringField{},
+				},
+			},
+		},
 	}, nil
 }
 
