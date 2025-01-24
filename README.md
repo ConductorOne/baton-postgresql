@@ -65,19 +65,25 @@ Usage:
   baton-postgresql [command]
 
 Available Commands:
+  capabilities       Get connector capabilities
   completion         Generate the autocompletion script for the specified shell
   help               Help about any command
 
 Flags:
-      --dsn string          The connection string for the PostgreSQL database ($BATON_DSN)
-                            example: postgres://username:password@localhost:5432/database_name
-  -f, --file string         The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
-  -h, --help                help for baton-postgresql
-      --log-format string   The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
-      --log-level string    The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
-      --schemas strings     The schemas to include in the sync. ($BATON_SCHEMAS)
-                            This defaults to 'public' only. (default [public])
-  -v, --version             version for baton-postgresql
+      --client-id string        The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
+      --client-secret string    The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
+      --dsn string              required: The DSN to connect to the database ($BATON_DSN)
+  -f, --file string             The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
+  -h, --help                    help for baton-postgresql
+      --include-columns         Include column privileges when syncing. This can result in large amounts of data ($BATON_INCLUDE_COLUMNS)
+      --include-large-objects   Include large objects when syncing. This can result in large amounts of data ($BATON_INCLUDE_LARGE_OBJECTS)
+      --log-format string       The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
+      --log-level string        The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
+  -p, --provisioning            This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
+      --schemas strings         The schemas to include in the sync ($BATON_SCHEMAS) (default [public])
+      --skip-full-sync          This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
+      --ticketing               This must be set to enable ticketing support ($BATON_TICKETING)
+  -v, --version                 version for baton-postgresql
 
 Use "baton-postgresql [command] --help" for more information about a command.
 ```
