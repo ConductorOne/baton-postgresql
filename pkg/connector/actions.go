@@ -3,14 +3,17 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"google.golang.org/protobuf/encoding/prototext"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func (c *Postgresql) DeleteAccount(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
 	// need to parse the rid
 	fields := args.GetFields()
 	rawRid, ok := fields["rid"]
@@ -22,22 +25,19 @@ func (c *Postgresql) DeleteAccount(ctx context.Context, args *structpb.Struct) (
 		return nil, nil, fmt.Errorf("rid is required")
 	}
 
-	var rid v2.ResourceId
-	err := prototext.Unmarshal([]byte(strRid), &rid)
+	parts := strings.SplitN(strRid, ":", 4)
+	if len(parts) != 4 {
+		return nil, nil, fmt.Errorf("invalid rid: %s", strRid)
+	}
+
+	rid, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid rid: %w", err)
 	}
 
-	if rid.ResourceType != roleResourceType.Id {
-		return nil, nil, fmt.Errorf("rid is not a role")
-	}
+	l.Info("deleting account", zap.String("rid", strRid))
 
-	roleId, err := parseObjectID(rid.Resource)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid rid: %w", err)
-	}
-
-	pgRole, err := c.client.GetRole(ctx, roleId)
+	pgRole, err := c.client.GetRole(ctx, rid)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid rid: %w", err)
 	}
