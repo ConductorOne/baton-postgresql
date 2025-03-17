@@ -6,7 +6,9 @@ import (
 	"io"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
@@ -31,6 +33,37 @@ func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.Res
 		newDatabaseSyncer(ctx, o.client),
 		newSequenceSyncer(ctx, o.client),
 	}
+}
+
+var deleteAccountSchema = &v2.BatonActionSchema{
+	Name:        "delete_account",
+	DisplayName: "Delete Account",
+	Description: "Delete an account",
+	Arguments: []*config.Field{
+		{
+			Name:        "email",
+			DisplayName: "Email",
+			Description: "The email of the account to delete",
+			Field:       &config.Field_StringField{},
+		},
+	},
+	ReturnTypes: []*config.Field{
+		{
+			Name:        "success",
+			DisplayName: "Success",
+			Description: "Whether the account was deleted successfully",
+			Field:       &config.Field_BoolField{},
+		},
+	},
+}
+
+func (c *Postgresql) RegisterActionManager(ctx context.Context) (connectorbuilder.CustomActionManager, error) {
+	actionsManager := actions.NewActionManager(ctx)
+	err := actionsManager.RegisterAction(ctx, "delete_account", deleteAccountSchema, c.DeleteAccount)
+	if err != nil {
+		return nil, err
+	}
+	return actionsManager, nil
 }
 
 func (c *Postgresql) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
