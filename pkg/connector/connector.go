@@ -41,9 +41,9 @@ var deleteAccountSchema = &v2.BatonActionSchema{
 	Description: "Delete an account",
 	Arguments: []*config.Field{
 		{
-			Name:        "email",
-			DisplayName: "Email",
-			Description: "The email of the account to delete",
+			Name:        "rid",
+			DisplayName: "Resource ID",
+			Description: "The resource ID of the account to delete",
 			Field:       &config.Field_StringField{},
 		},
 	},
