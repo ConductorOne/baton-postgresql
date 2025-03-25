@@ -199,10 +199,6 @@ func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 	return ret, nextPageToken, nil, nil
 }
 
-func (r *roleSyncer) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
-	return nil, nil, fmt.Errorf("baton-postgres: role creation not supported")
-}
-
 func (r *roleSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {
 	if resourceId.ResourceType != roleResourceType.Id {
 		return nil, fmt.Errorf("baton-postgres: non-role/user resource passed to role delete")
