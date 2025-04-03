@@ -363,7 +363,16 @@ func (r *roleSyncer) CreateAccount(
 		Name:  "password",
 		Bytes: []byte(plainTextPassword),
 	}
-	roleModel, err = r.client.CreateUser(ctx, accountInfo.GetLogin(), plainTextPassword)
+	// Default to C1 User's login as email
+	email := accountInfo.GetLogin()
+	// If the account provisioning schema has been filled, use the calculated email field
+	if accountInfo.Profile != nil {
+		profileMap := accountInfo.Profile.GetFields()
+		if value, ok := profileMap["email"]; ok && value.GetStringValue() != "" {
+			email = value.GetStringValue()
+		}
+	}
+	roleModel, err = r.client.CreateUser(ctx, email, plainTextPassword)
 	if err != nil {
 		return nil, nil, nil, err
 	}
