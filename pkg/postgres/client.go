@@ -2,8 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
@@ -42,10 +40,6 @@ func New(ctx context.Context, dsn string, opts ...ClientOpt) (*Client, error) {
 	logger := &Logger{}
 	config.ConnConfig.LogLevel = logger.Zap2PgxLogLevel(l.Level())
 	config.ConnConfig.Logger = logger
-
-	if config.ConnConfig.Database == "" {
-		return nil, fmt.Errorf("must specify a database to connect to")
-	}
 
 	db, err := pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
