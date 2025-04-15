@@ -19,7 +19,7 @@ var columnResourceType = &v2.ResourceType{
 
 type columnSyncer struct {
 	resourceType *v2.ResourceType
-	client       *postgres.Client
+	clientPool   *postgres.ClientDatabasesPool
 }
 
 func (r *columnSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -37,12 +37,17 @@ func (r *columnSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 		return nil, "", nil, fmt.Errorf("invalid parent resource ID on column %s %s", parentResourceID.ResourceType, parentResourceID.Resource)
 	}
 
-	parentID, err := parseObjectID(parentResourceID.Resource)
+	db, parentID, err := parseWithDatabaseID(parentResourceID.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	columns, nextPageToken, err := r.client.ListColumns(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	client, _, err := r.clientPool.Get(ctx, db)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	columns, nextPageToken, err := client.ListColumns(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -55,7 +60,7 @@ func (r *columnSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 			DisplayName: o.Name,
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
-				Resource:     formatColumnID(parentID, o.ID),
+				Resource:     formatColumnID(db, parentID, o.ID),
 			},
 			ParentResourceId: parentResourceID,
 			Annotations:      annos,
@@ -76,22 +81,27 @@ func (r *columnSyncer) Entitlements(ctx context.Context, resource *v2.Resource, 
 }
 
 func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	tID, cID, err := parseColumnID(resource.Id.Resource)
+	db, tID, cID, err := parseColumnID(resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	client, _, err := r.clientPool.Get(ctx, db)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	col, err := r.client.GetColumn(ctx, tID, cID)
+	roles, nextPageToken, err := client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, col)
+	col, err := client.GetColumn(ctx, tID, cID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := roleGrantsForPrivileges(ctx, client, resource, roles, col)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -99,9 +109,9 @@ func (r *columnSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 	return ret, nextPageToken, nil, nil
 }
 
-func newColumnSyncer(ctx context.Context, c *postgres.Client) *columnSyncer {
+func newColumnSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *columnSyncer {
 	return &columnSyncer{
 		resourceType: columnResourceType,
-		client:       c,
+		clientPool:   c,
 	}
 }

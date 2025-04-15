@@ -2,7 +2,11 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/jackc/pgconn"
+	"go.uber.org/zap"
 	"strconv"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
@@ -20,6 +24,7 @@ var databaseResourceType = &v2.ResourceType{
 
 type databaseSyncer struct {
 	resourceType *v2.ResourceType
+	clientPool   *postgres.ClientDatabasesPool
 	client       *postgres.Client
 }
 
@@ -43,19 +48,42 @@ func (r *databaseSyncer) makeResource(ctx context.Context, dbModel *postgres.Dat
 }
 
 func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
 	var err error
 
 	if parentResourceID != nil {
 		return nil, "", nil, fmt.Errorf("unexpected parent resource ID on database")
 	}
 
-	databases, nextPageToken, err := r.client.ListDatabases(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	databases, nextPageToken, err := r.clientPool.
+		Default(ctx).
+		ListDatabases(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+
 	if err != nil {
 		return nil, "", nil, err
 	}
 
+	defaultDatabase := r.clientPool.DefaultDatabase(ctx)
+
 	var ret []*v2.Resource
 	for _, o := range databases {
+		if defaultDatabase != "" && o.Name != defaultDatabase {
+			continue
+		}
+
+		_, _, err := r.clientPool.Get(ctx, fmt.Sprintf("%d", o.ID))
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				// Database does not accept connections
+				if pgErr.Code == "55000" {
+					l.Info("skipping database that does not accept connections", zap.String("database", o.Name), zap.Error(err))
+					continue
+				}
+			}
+			return nil, "", nil, err
+		}
+
 		ret = append(ret, r.makeResource(ctx, o))
 	}
 
@@ -298,9 +326,10 @@ func (r *databaseSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotatio
 	return nil, err
 }
 
-func newDatabaseSyncer(ctx context.Context, c *postgres.Client) *databaseSyncer {
+func newDatabaseSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *databaseSyncer {
 	return &databaseSyncer{
 		resourceType: databaseResourceType,
-		client:       c,
+		clientPool:   c,
+		client:       c.Default(ctx),
 	}
 }

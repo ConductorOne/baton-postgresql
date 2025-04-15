@@ -19,7 +19,7 @@ var functionResourceType = &v2.ResourceType{
 
 type functionSyncer struct {
 	resourceType *v2.ResourceType
-	client       *postgres.Client
+	clientPool   *postgres.ClientDatabasesPool
 }
 
 func (r *functionSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -37,12 +37,17 @@ func (r *functionSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 		return nil, "", nil, fmt.Errorf("invalid parent resource ID on function")
 	}
 
-	parentID, err := parseObjectID(parentResourceID.Resource)
+	db, parentID, err := parseWithDatabaseID(parentResourceID.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	functions, nextPageToken, err := r.client.ListFunctions(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	client, _, err := r.clientPool.Get(ctx, db)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	functions, nextPageToken, err := client.ListFunctions(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -55,7 +60,7 @@ func (r *functionSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 			DisplayName: o.Name,
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
-				Resource:     formatObjectID(functionResourceType.Id, o.ID),
+				Resource:     formatWithDatabaseID(functionResourceType.Id, db, o.ID),
 			},
 			ParentResourceId: parentResourceID,
 			Annotations:      annos,
@@ -66,31 +71,53 @@ func (r *functionSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 }
 
 func (r *functionSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	dbId, _, err := parseWithDatabaseID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	dbModel, err := r.clientPool.
+		Default(ctx).
+		GetDatabaseById(ctx, dbId)
+
+	if err != nil {
+		return nil, "", nil, err
+	}
+
 	ens, err := entitlementsForPrivs(ctx, resource, postgres.Execute)
 	if err != nil {
 		return nil, "", nil, err
+	}
+
+	for _, en := range ens {
+		en.DisplayName = fmt.Sprintf("%s on %s", dbModel.Name, en.DisplayName)
 	}
 
 	return ens, "", nil, nil
 }
 
 func (r *functionSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	rID, err := parseObjectID(resource.Id.Resource)
+	db, rID, err := parseWithDatabaseID(resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	function, err := r.client.GetFunction(ctx, rID)
+	client, _, err := r.clientPool.Get(ctx, db)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	function, err := client.GetFunction(ctx, rID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, function)
+	roles, nextPageToken, err := client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := roleGrantsForPrivileges(ctx, client, resource, roles, function)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -98,9 +125,9 @@ func (r *functionSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 	return ret, nextPageToken, nil, nil
 }
 
-func newFunctionSyncer(ctx context.Context, c *postgres.Client) *functionSyncer {
+func newFunctionSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *functionSyncer {
 	return &functionSyncer{
 		resourceType: functionResourceType,
-		client:       c,
+		clientPool:   c,
 	}
 }

@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -19,7 +18,7 @@ var tableResourceType = &v2.ResourceType{
 
 type tableSyncer struct {
 	resourceType   *v2.ResourceType
-	client         *postgres.Client
+	clientPool     *postgres.ClientDatabasesPool
 	includeColumns bool
 }
 
@@ -38,12 +37,22 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 		return nil, "", nil, fmt.Errorf("invalid parent resource ID on table")
 	}
 
-	parentID, err := parseObjectID(parentResourceID.Resource)
+	database, parentID, err := parseWithDatabaseID(parentResourceID.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	tables, nextPageToken, err := r.client.ListTables(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	client, _, err := r.clientPool.Get(ctx, database)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	schema, err := client.GetSchema(ctx, parentID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	tables, nextPageToken, err := client.ListTables(ctx, schema.Name, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -60,7 +69,7 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 			DisplayName: o.Name,
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
-				Resource:     formatObjectID(tableResourceType.Id, o.ID),
+				Resource:     formatWithDatabaseID(tableResourceType.Id, database, o.ID),
 			},
 			ParentResourceId: parentResourceID,
 			Annotations:      annos,
@@ -71,6 +80,19 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 }
 
 func (r *tableSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	dbId, _, err := parseWithDatabaseID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	dbModel, err := r.clientPool.
+		Default(ctx).
+		GetDatabaseById(ctx, dbId)
+
+	if err != nil {
+		return nil, "", nil, err
+	}
+
 	ens, err := entitlementsForPrivs(
 		ctx,
 		resource,
@@ -80,26 +102,35 @@ func (r *tableSyncer) Entitlements(ctx context.Context, resource *v2.Resource, p
 		return nil, "", nil, err
 	}
 
+	for _, en := range ens {
+		en.DisplayName = fmt.Sprintf("%s - %s", dbModel.Name, resource.DisplayName)
+	}
+
 	return ens, "", nil, nil
 }
 
 func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	rID, err := parseObjectID(resource.Id.Resource)
+	db, rID, err := parseWithDatabaseID(resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	table, err := r.client.GetTable(ctx, rID)
+	client, _, err := r.clientPool.Get(ctx, db)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	table, err := client.GetTable(ctx, rID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, table)
+	roles, nextPageToken, err := client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := roleGrantsForPrivileges(ctx, client, resource, roles, table)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -107,10 +138,10 @@ func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken 
 	return ret, nextPageToken, nil, nil
 }
 
-func newTableSyncer(ctx context.Context, c *postgres.Client, includeColumns bool) *tableSyncer {
+func newTableSyncer(ctx context.Context, c *postgres.ClientDatabasesPool, includeColumns bool) *tableSyncer {
 	return &tableSyncer{
 		resourceType:   tableResourceType,
-		client:         c,
+		clientPool:     c,
 		includeColumns: includeColumns,
 	}
 }

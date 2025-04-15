@@ -77,6 +77,26 @@ WHERE "datname"=$1
 	return ret, nil
 }
 
+func (c *Client) GetDatabaseById(ctx context.Context, dbId string) (*DatabaseModel, error) {
+	ret := &DatabaseModel{}
+
+	q := `
+SELECT "oid"::int,
+       "datname",
+       "datdba",
+       "datacl"
+from "pg_catalog"."pg_database"
+WHERE "oid"=$1
+`
+
+	err := pgxscan.Get(ctx, c.db, ret, q, dbId)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
 func (c *Client) ListDatabases(ctx context.Context, pager *Pager) ([]*DatabaseModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Debug("listing databases")

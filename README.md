@@ -1,12 +1,27 @@
 ![Baton Logo](./docs/images/baton-logo.png)
 
-# `baton-postgresql` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-postgresql.svg)](https://pkg.go.dev/github.com/conductorone/baton-postgresql) ![main ci](https://github.com/conductorone/baton-postgresql/actions/workflows/main.yaml/badge.svg)
+#
 
-`baton-postgresql` is a connector for PostgreSQL built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It connects to a PostgreSQL database and syncs data about which roles have access to which resources within the database.
+`baton-postgresql` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-postgresql.svg)](https://pkg.go.dev/github.com/conductorone/baton-postgresql) ![main ci](https://github.com/conductorone/baton-postgresql/actions/workflows/main.yaml/badge.svg)
+
+`baton-postgresql` is a connector for PostgreSQL built using the [Baton SDK](https://github.com/conductorone/baton-sdk).
+It connects to a PostgreSQL database and syncs data about which roles have access to which resources within the
+database.
 
 Check out [Baton](https://github.com/conductorone/baton) to learn more about the project in general.
 
 # Getting Started
+
+Needs postgresql DSN, if no database is selected in the DSN, it will use all databases.
+
+## Troubleshooting
+
+If you are having issues with the connector, please check the following:
+
+- Specified database
+  - User needs permission to access the database, this will cause missing resources.
+- Not specified database
+  - User needs permission for each database, otherwise it will not be able to read the resources for that database.
 
 ## brew
 
@@ -47,11 +62,14 @@ baton resources
 - Columns
 - Large Objects
 
-By default, `baton-postgresql` will only sync information from the `public` schema. You can use the `--schemas` flag to specify other schemas.
+By default, `baton-postgresql` will only sync information from the `public` schema. You can use the `--schemas` flag to
+specify other schemas.
 
 # Contributing, Support and Issues
 
-We started Baton because we were tired of taking screenshots and manually building spreadsheets. We welcome contributions, and ideas, no matter how small -- our goal is to make identity and permissions sprawl less painful for everyone. If you have questions, problems, or ideas: Please open a Github Issue!
+We started Baton because we were tired of taking screenshots and manually building spreadsheets. We welcome
+contributions, and ideas, no matter how small -- our goal is to make identity and permissions sprawl less painful for
+everyone. If you have questions, problems, or ideas: Please open a Github Issue!
 
 See [CONTRIBUTING.md](https://github.com/ConductorOne/baton/blob/main/CONTRIBUTING.md) for more details.
 
