@@ -53,7 +53,7 @@ func parseObjectID(id string) (int64, error) {
 
 func parseColumnID(id string) (string, int64, int64, error) {
 	parts := strings.SplitN(id, ":", 4)
-	if len(parts) != 4 {
+	if len(parts) != 4 || parts[1] != columnResourceType.Id {
 		return "", 0, 0, fmt.Errorf("invalid column ID %s", id)
 	}
 

@@ -30,7 +30,7 @@ func (r *tableSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
 func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var err error
 
-	if parentResourceID == nil {
+	if parentResourceID == nil || pToken == nil {
 		return nil, "", nil, nil
 	}
 

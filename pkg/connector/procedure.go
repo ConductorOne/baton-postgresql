@@ -29,7 +29,7 @@ func (r *procedureSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
 func (r *procedureSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var err error
 
-	if parentResourceID == nil {
+	if parentResourceID == nil || pToken == nil {
 		return nil, "", nil, nil
 	}
 
@@ -71,12 +71,6 @@ func (r *procedureSyncer) List(ctx context.Context, parentResourceID *v2.Resourc
 }
 
 func (r *procedureSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	_, _, err := parseWithDatabaseID(resource.Id.Resource)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	// TODO: add db on entitlement
 	ens, err := entitlementsForPrivs(ctx, resource, postgres.Execute)
 	if err != nil {
 		return nil, "", nil, err
