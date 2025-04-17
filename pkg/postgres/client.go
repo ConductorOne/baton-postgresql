@@ -3,10 +3,11 @@ package postgres
 import (
 	"context"
 	"errors"
+	"sync"
+
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"go.uber.org/zap"
-	"sync"
 )
 
 type ClientDatabasesPool struct {

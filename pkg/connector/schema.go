@@ -50,7 +50,6 @@ func (r *schemaSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 
 	if dbName == "" {
 		return nil, "", nil, fmt.Errorf("database name not found for ID %d", dbId)
-
 	}
 
 	schemas, nextPageToken, err := client.ListSchemas(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})

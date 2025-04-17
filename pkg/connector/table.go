@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"

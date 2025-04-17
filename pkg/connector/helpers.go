@@ -15,7 +15,7 @@ func formatWithDatabaseID(resourceTypeID string, dbId string, id int64) string {
 	return fmt.Sprintf("%s:db%s:%d", resourceTypeID, dbId, id)
 }
 
-// parseWithDatabaseID return databaseId and schemaId
+// parseWithDatabaseID return databaseId and schemaId.
 func parseWithDatabaseID(id string) (string, int64, error) {
 	parts := strings.SplitN(id, ":", 3)
 	if len(parts) != 3 {
