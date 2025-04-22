@@ -81,6 +81,8 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 					l.Info("skipping database that does not accept connections", zap.String("database", o.Name), zap.Error(err))
 					continue
 				}
+				l.Warn("skipping database with error", zap.String("database", o.Name), zap.Error(err))
+				continue
 			}
 			return nil, "", nil, err
 		}
