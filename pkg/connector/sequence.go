@@ -19,7 +19,7 @@ var sequenceResourceType = &v2.ResourceType{
 
 type sequenceSyncer struct {
 	resourceType *v2.ResourceType
-	client       *postgres.Client
+	clientPool   *postgres.ClientDatabasesPool
 }
 
 func (r *sequenceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -29,7 +29,7 @@ func (r *sequenceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
 func (r *sequenceSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var err error
 
-	if parentResourceID == nil {
+	if parentResourceID == nil || pToken == nil {
 		return nil, "", nil, nil
 	}
 
@@ -37,12 +37,17 @@ func (r *sequenceSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 		return nil, "", nil, fmt.Errorf("invalid parent resource ID on sequence")
 	}
 
-	parentID, err := parseObjectID(parentResourceID.Resource)
+	db, parentID, err := parseWithDatabaseID(parentResourceID.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	sequences, nextPageToken, err := r.client.ListSequences(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	client, _, err := r.clientPool.Get(ctx, db)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	sequences, nextPageToken, err := client.ListSequences(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -55,7 +60,7 @@ func (r *sequenceSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 			DisplayName: o.Name,
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
-				Resource:     formatObjectID(sequenceResourceType.Id, o.ID),
+				Resource:     formatWithDatabaseID(sequenceResourceType.Id, db, o.ID),
 			},
 			ParentResourceId: parentResourceID,
 			Annotations:      annos,
@@ -66,6 +71,19 @@ func (r *sequenceSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 }
 
 func (r *sequenceSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	dbId, _, err := parseWithDatabaseID(resource.Id.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	dbModel, err := r.clientPool.
+		Default(ctx).
+		GetDatabaseById(ctx, dbId)
+
+	if err != nil {
+		return nil, "", nil, err
+	}
+
 	ens, err := entitlementsForPrivs(
 		ctx,
 		resource,
@@ -75,26 +93,35 @@ func (r *sequenceSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 		return nil, "", nil, err
 	}
 
+	for _, en := range ens {
+		en.DisplayName = fmt.Sprintf("%s on %s", dbModel.Name, en.DisplayName)
+	}
+
 	return ens, "", nil, nil
 }
 
 func (r *sequenceSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	rID, err := parseObjectID(resource.Id.Resource)
+	db, rID, err := parseWithDatabaseID(resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	sequence, err := r.client.GetSequence(ctx, rID)
+	client, _, err := r.clientPool.Get(ctx, db)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	sequence, err := client.GetSequence(ctx, rID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, sequence)
+	roles, nextPageToken, err := client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := roleGrantsForPrivileges(ctx, client, resource, roles, sequence)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -102,9 +129,9 @@ func (r *sequenceSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 	return ret, nextPageToken, nil, nil
 }
 
-func newSequenceSyncer(ctx context.Context, c *postgres.Client) *sequenceSyncer {
+func newSequenceSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *sequenceSyncer {
 	return &sequenceSyncer{
 		resourceType: sequenceResourceType,
-		client:       c,
+		clientPool:   c,
 	}
 }

@@ -12,7 +12,7 @@ import (
 )
 
 type Postgresql struct {
-	client              *postgres.Client
+	clientPool          *postgres.ClientDatabasesPool
 	schemas             []string
 	includeColumns      bool
 	includeLargeObjects bool
@@ -20,16 +20,16 @@ type Postgresql struct {
 
 func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{
-		newRoleSyncer(ctx, o.client),
-		newSchemaSyncer(ctx, o.client),
-		newTableSyncer(ctx, o.client, o.includeColumns),
-		newViewSyncer(ctx, o.client),
-		newColumnSyncer(ctx, o.client),
-		newFunctionSyncer(ctx, o.client),
-		newProcedureSyncer(ctx, o.client),
-		newLargeObjectSyncer(ctx, o.client, o.includeLargeObjects),
-		newDatabaseSyncer(ctx, o.client),
-		newSequenceSyncer(ctx, o.client),
+		newRoleSyncer(ctx, o.clientPool.Default(ctx)),
+		newSchemaSyncer(ctx, o.clientPool),
+		newTableSyncer(ctx, o.clientPool, o.includeColumns),
+		newViewSyncer(ctx, o.clientPool),
+		newColumnSyncer(ctx, o.clientPool),
+		newFunctionSyncer(ctx, o.clientPool),
+		newProcedureSyncer(ctx, o.clientPool),
+		newLargeObjectSyncer(ctx, o.clientPool.Default(ctx), o.includeLargeObjects),
+		newDatabaseSyncer(ctx, o.clientPool),
+		newSequenceSyncer(ctx, o.clientPool),
 	}
 }
 
@@ -61,18 +61,13 @@ func (c *Postgresql) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.
 }
 
 func New(ctx context.Context, dsn string, schemas []string, includeColumns bool, includeLargeObjects bool) (*Postgresql, error) {
-	var client *postgres.Client = nil
-
-	if dsn != "" {
-		c, err := postgres.New(ctx, dsn, postgres.WithSchemaFilter(schemas))
-		if err != nil {
-			return nil, err
-		}
-		client = c
+	clientPool, err := postgres.NewClientDatabasesPool(ctx, dsn, postgres.WithSchemaFilter(schemas))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create postgres client pool: %w", err)
 	}
 
 	return &Postgresql{
-		client:              client,
+		clientPool:          clientPool,
 		schemas:             schemas,
 		includeColumns:      includeColumns,
 		includeLargeObjects: includeLargeObjects,

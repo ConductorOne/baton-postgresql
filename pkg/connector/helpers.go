@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,12 +11,35 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+func formatWithDatabaseID(resourceTypeID string, dbId string, id int64) string {
+	return fmt.Sprintf("%s:db%s:%d", resourceTypeID, dbId, id)
+}
+
+// parseWithDatabaseID return databaseId and schemaId.
+func parseWithDatabaseID(id string) (string, int64, error) {
+	parts := strings.SplitN(id, ":", 3)
+	if len(parts) != 3 {
+		return "", 0, fmt.Errorf("invalid object ID for database %s", id)
+	}
+
+	if len(parts[1]) < 2 {
+		return "", 0, fmt.Errorf("invalid object ID for database %s expected prefix db", id)
+	}
+
+	schemaId, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return "", 0, errors.Join(err, fmt.Errorf("invalid object ID for database %s", id))
+	}
+
+	return parts[1][2:], schemaId, nil
+}
+
 func formatObjectID(resourceTypeID string, id int64) string {
 	return fmt.Sprintf("%s:%d", resourceTypeID, id)
 }
 
-func formatColumnID(tableID int64, columnID int64) string {
-	return fmt.Sprintf("%s:%d:%d", columnResourceType.Id, tableID, columnID)
+func formatColumnID(db string, tableID int64, columnID int64) string {
+	return fmt.Sprintf("%s:%s:%d:%d", db, columnResourceType.Id, tableID, columnID)
 }
 
 func parseObjectID(id string) (int64, error) {
@@ -27,23 +51,25 @@ func parseObjectID(id string) (int64, error) {
 	return strconv.ParseInt(parts[1], 10, 64)
 }
 
-func parseColumnID(id string) (int64, int64, error) {
-	parts := strings.SplitN(id, ":", 3)
-	if len(parts) != 3 {
-		return 0, 0, fmt.Errorf("invalid column ID %s", id)
+func parseColumnID(id string) (string, int64, int64, error) {
+	parts := strings.SplitN(id, ":", 4)
+	if len(parts) != 4 || parts[1] != columnResourceType.Id {
+		return "", 0, 0, fmt.Errorf("invalid column ID %s", id)
 	}
 
-	tID, err := strconv.ParseInt(parts[1], 10, 64)
+	db := parts[0]
+
+	tID, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
-		return 0, 0, err
+		return "", 0, 0, err
 	}
 
-	colID, err := strconv.ParseInt(parts[2], 10, 64)
+	colID, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
-		return 0, 0, err
+		return "", 0, 0, err
 	}
 
-	return tID, colID, nil
+	return db, tID, colID, nil
 }
 
 func formatGrantID(entitlementID string, principalId *v2.ResourceId) string {

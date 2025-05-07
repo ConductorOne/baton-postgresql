@@ -48,7 +48,7 @@ func (c *Client) GetTable(ctx context.Context, tableID int64) (*TableModel, erro
 	return ret, nil
 }
 
-func (c *Client) ListTables(ctx context.Context, schemaID int64, pager *Pager) ([]*TableModel, string, error) {
+func (c *Client) ListTables(ctx context.Context, schemaName string, pager *Pager) ([]*TableModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Debug("listing tables")
 
@@ -62,11 +62,11 @@ func (c *Client) ListTables(ctx context.Context, schemaID int64, pager *Pager) (
 SELECT c."oid"::int, c."relname", c."relowner"::int, n."nspname", c."relacl"
 FROM pg_class c
          LEFT JOIN pg_namespace n ON n."oid" = c."relnamespace"
-WHERE n."oid" = $1
+WHERE n."nspname" = $1
   AND (c."relkind" = 'r' OR c."relkind" = 'p')
 `)
 
-	args = append(args, schemaID)
+	args = append(args, schemaName)
 	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
 	if offset > 0 {

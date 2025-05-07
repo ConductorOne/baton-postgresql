@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -19,7 +20,7 @@ var schemaResourceType = &v2.ResourceType{
 
 type schemaSyncer struct {
 	resourceType *v2.ResourceType
-	client       *postgres.Client
+	clientPool   *postgres.ClientDatabasesPool
 }
 
 func (r *schemaSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -37,7 +38,21 @@ func (r *schemaSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 		return nil, "", nil, fmt.Errorf("invalid parent resource ID on schema")
 	}
 
-	schemas, nextPageToken, err := r.client.ListSchemas(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	dbId, err := parseObjectID(parentResourceID.Resource)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	client, dbName, err := r.clientPool.Get(ctx, strconv.Itoa(int(dbId)))
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	if dbName == "" {
+		return nil, "", nil, fmt.Errorf("database name not found for ID %d", dbId)
+	}
+
+	schemas, nextPageToken, err := client.ListSchemas(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -53,10 +68,10 @@ func (r *schemaSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId
 		annos.Append(&v2.ChildResourceType{ResourceTypeId: sequenceResourceType.Id})
 
 		ret = append(ret, &v2.Resource{
-			DisplayName: o.Name,
+			DisplayName: fmt.Sprintf("%s - %s", dbName, o.Name),
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
-				Resource:     formatObjectID(r.resourceType.Id, o.ID),
+				Resource:     formatWithDatabaseID(r.resourceType.Id, strconv.FormatInt(dbId, 10), o.ID),
 			},
 			ParentResourceId: parentResourceID,
 			Annotations:      annos,
@@ -76,22 +91,27 @@ func (r *schemaSyncer) Entitlements(ctx context.Context, resource *v2.Resource, 
 }
 
 func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	rID, err := parseObjectID(resource.Id.Resource)
+	db, rID, err := parseWithDatabaseID(resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	schema, err := r.client.GetSchema(ctx, rID)
+	client, _, err := r.clientPool.Get(ctx, db)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	schema, err := client.GetSchema(ctx, rID)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, schema)
+	roles, nextPageToken, err := client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	ret, err := roleGrantsForPrivileges(ctx, client, resource, roles, schema)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -99,9 +119,9 @@ func (r *schemaSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken
 	return ret, nextPageToken, nil, nil
 }
 
-func newSchemaSyncer(ctx context.Context, c *postgres.Client) *schemaSyncer {
+func newSchemaSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *schemaSyncer {
 	return &schemaSyncer{
 		resourceType: schemaResourceType,
-		client:       c,
+		clientPool:   c,
 	}
 }
