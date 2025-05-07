@@ -71,12 +71,19 @@ func (r *viewSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, 
 }
 
 func (r *viewSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	_, _, err := parseWithDatabaseID(resource.Id.Resource)
+	dbId, _, err := parseWithDatabaseID(resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	// TODO: add dat
+	dbModel, err := r.clientPool.
+		Default(ctx).
+		GetDatabaseById(ctx, dbId)
+
+	if err != nil {
+		return nil, "", nil, err
+	}
+
 	ens, err := entitlementsForPrivs(
 		ctx,
 		resource,
@@ -84,6 +91,10 @@ func (r *viewSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pT
 	)
 	if err != nil {
 		return nil, "", nil, err
+	}
+
+	for _, en := range ens {
+		en.DisplayName = fmt.Sprintf("%s on %s", dbModel.Name, en.DisplayName)
 	}
 
 	return ens, "", nil, nil
