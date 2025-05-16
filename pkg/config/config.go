@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -13,6 +13,7 @@ var (
 
 var relationships = []field.SchemaFieldRelationship{}
 
-var configuration = field.NewConfiguration([]field.SchemaField{
+//go:generate go run ./gen
+var Config = field.NewConfiguration([]field.SchemaField{
 	dsn, schemas, includeColumns, includeLargeObjects,
 }, relationships...)

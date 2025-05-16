@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
+	cfg "github.com/conductorone/baton-postgresql/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-postgresql/pkg/connector"
@@ -20,7 +20,7 @@ var version = "dev"
 func main() {
 	ctx := context.Background()
 
-	_, cmd, err := configschema.DefineConfiguration(ctx, "baton-postgresql", getConnector, configuration)
+	_, cmd, err := configschema.DefineConfiguration(ctx, "baton-postgresql", getConnector, cfg.Config)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -35,10 +35,10 @@ func main() {
 	}
 }
 
-func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
+func getConnector(ctx context.Context, pgc *cfg.Postgresql) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
-	cb, err := connector.New(ctx, v.GetString("dsn"), v.GetStringSlice("schemas"), v.GetBool("include-columns"), v.GetBool("include-large-objects"))
+	cb, err := connector.New(ctx, pgc.Dsn, pgc.Schemas, pgc.IncludeColumns, pgc.IncludeLargeObjects)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
