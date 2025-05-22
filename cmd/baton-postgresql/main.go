@@ -38,7 +38,7 @@ func main() {
 func getConnector(ctx context.Context, pgc *cfg.Postgresql) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
-	cb, err := connector.New(ctx, pgc.Dsn, pgc.Schemas, pgc.IncludeColumns, pgc.IncludeLargeObjects)
+	cb, err := connector.New(ctx, pgc.Dsn, pgc.Schemas, pgc.IncludeColumns, pgc.IncludeLargeObjects, pgc.SyncAllDatabases)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err

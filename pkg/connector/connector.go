@@ -16,6 +16,7 @@ type Postgresql struct {
 	schemas             []string
 	includeColumns      bool
 	includeLargeObjects bool
+	syncAllDatabases    bool
 }
 
 func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
@@ -28,7 +29,7 @@ func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.Res
 		newFunctionSyncer(ctx, o.clientPool),
 		newProcedureSyncer(ctx, o.clientPool),
 		newLargeObjectSyncer(ctx, o.clientPool.Default(ctx), o.includeLargeObjects),
-		newDatabaseSyncer(ctx, o.clientPool),
+		newDatabaseSyncer(ctx, o.clientPool, o.syncAllDatabases),
 		newSequenceSyncer(ctx, o.clientPool),
 	}
 }
@@ -60,7 +61,7 @@ func (c *Postgresql) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.
 	return "", nil, fmt.Errorf("not implemented")
 }
 
-func New(ctx context.Context, dsn string, schemas []string, includeColumns bool, includeLargeObjects bool) (*Postgresql, error) {
+func New(ctx context.Context, dsn string, schemas []string, includeColumns bool, includeLargeObjects bool, syncAllDatabases bool) (*Postgresql, error) {
 	clientPool, err := postgres.NewClientDatabasesPool(ctx, dsn, postgres.WithSchemaFilter(schemas))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres client pool: %w", err)
@@ -71,5 +72,6 @@ func New(ctx context.Context, dsn string, schemas []string, includeColumns bool,
 		schemas:             schemas,
 		includeColumns:      includeColumns,
 		includeLargeObjects: includeLargeObjects,
+		syncAllDatabases:    syncAllDatabases,
 	}, nil
 }

@@ -24,9 +24,10 @@ var databaseResourceType = &v2.ResourceType{
 }
 
 type databaseSyncer struct {
-	resourceType *v2.ResourceType
-	clientPool   *postgres.ClientDatabasesPool
-	client       *postgres.Client
+	resourceType     *v2.ResourceType
+	clientPool       *postgres.ClientDatabasesPool
+	client           *postgres.Client
+	syncAllDatabases bool
 }
 
 func (r *databaseSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -64,11 +65,11 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 		return nil, "", nil, err
 	}
 
-	defaultDatabase := r.clientPool.DefaultDatabase(ctx)
+	defaultDbClient := r.clientPool.Default(ctx)
 
 	var ret []*v2.Resource
 	for _, o := range databases {
-		if defaultDatabase != "" && o.Name != defaultDatabase {
+		if !r.syncAllDatabases && o.Name != defaultDbClient.DatabaseName() {
 			continue
 		}
 
@@ -329,10 +330,11 @@ func (r *databaseSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotatio
 	return nil, err
 }
 
-func newDatabaseSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *databaseSyncer {
+func newDatabaseSyncer(ctx context.Context, c *postgres.ClientDatabasesPool, syncAllDatabases bool) *databaseSyncer {
 	return &databaseSyncer{
-		resourceType: databaseResourceType,
-		clientPool:   c,
-		client:       c.Default(ctx),
+		resourceType:     databaseResourceType,
+		clientPool:       c,
+		client:           c.Default(ctx),
+		syncAllDatabases: syncAllDatabases,
 	}
 }
