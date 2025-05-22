@@ -19,9 +19,11 @@ Needs postgresql DSN, if no database is selected in the DSN, it will use all dat
 If you are having issues with the connector, please check the following:
 
 - Specified database
-  - User needs permission to access the database, this will cause missing resources.
-- Not specified database
-  - User needs permission for each database, otherwise it will not be able to read the resources for that database.
+    - User needs permission to access the database, this will cause missing resources.
+- Sync all databases
+    - Use `--dsn` and `--sync-all-databases` flag for postgres db `postgres://user:password@localhost:5432/postgres`
+    - Needs access to `"pg_catalog"."pg_database"` to get all databases
+    - Needs permission for each database to get all resources
 
 ## brew
 
@@ -85,23 +87,28 @@ Usage:
 Available Commands:
   capabilities       Get connector capabilities
   completion         Generate the autocompletion script for the specified shell
+  config             Get the connector config schema
   help               Help about any command
 
 Flags:
-      --client-id string        The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
-      --client-secret string    The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
-      --dsn string              required: The DSN to connect to the database ($BATON_DSN)
-  -f, --file string             The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
-  -h, --help                    help for baton-postgresql
-      --include-columns         Include column privileges when syncing. This can result in large amounts of data ($BATON_INCLUDE_COLUMNS)
-      --include-large-objects   Include large objects when syncing. This can result in large amounts of data ($BATON_INCLUDE_LARGE_OBJECTS)
-      --log-format string       The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
-      --log-level string        The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
-  -p, --provisioning            This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
-      --schemas strings         The schemas to include in the sync ($BATON_SCHEMAS) (default [public])
-      --skip-full-sync          This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
-      --ticketing               This must be set to enable ticketing support ($BATON_TICKETING)
-  -v, --version                 version for baton-postgresql
+      --client-id string                                 The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
+      --client-secret string                             The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
+      --dsn string                                       required: The DSN to connect to the database ($BATON_DSN)
+      --external-resource-c1z string                     The path to the c1z file to sync external baton resources with ($BATON_EXTERNAL_RESOURCE_C1Z)
+      --external-resource-entitlement-id-filter string   The entitlement that external users, groups must have access to sync external baton resources ($BATON_EXTERNAL_RESOURCE_ENTITLEMENT_ID_FILTER)
+  -f, --file string                                      The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
+  -h, --help                                             help for baton-postgresql
+      --include-columns                                  Include column privileges when syncing. This can result in large amounts of data ($BATON_INCLUDE_COLUMNS)
+      --include-large-objects                            Include large objects when syncing. This can result in large amounts of data ($BATON_INCLUDE_LARGE_OBJECTS)
+      --log-format string                                The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
+      --log-level string                                 The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
+      --otel-collector-endpoint string                   The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided) ($BATON_OTEL_COLLECTOR_ENDPOINT)
+  -p, --provisioning                                     This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
+      --schemas strings                                  The schemas to include in the sync ($BATON_SCHEMAS) (default [public])
+      --skip-full-sync                                   This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
+      --sync-all-databases                               Sync all databases. This can result in large amounts of data ($BATON_SYNC_ALL_DATABASES)
+      --ticketing                                        This must be set to enable ticketing support ($BATON_TICKETING)
+  -v, --version                                          version for baton-postgresql
 
 Use "baton-postgresql [command] --help" for more information about a command.
 ```

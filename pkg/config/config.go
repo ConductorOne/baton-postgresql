@@ -9,11 +9,12 @@ var (
 	schemas             = field.StringSliceField("schemas", field.WithDefaultValue([]string{"public"}), field.WithDescription("The schemas to include in the sync"))
 	includeColumns      = field.BoolField("include-columns", field.WithDescription("Include column privileges when syncing. This can result in large amounts of data"))
 	includeLargeObjects = field.BoolField("include-large-objects", field.WithDescription("Include large objects when syncing. This can result in large amounts of data"))
+	syncAllDatabases    = field.BoolField("sync-all-databases", field.WithDescription("Sync all databases. This can result in large amounts of data"), field.WithDefaultValue(false))
 )
 
 var relationships = []field.SchemaFieldRelationship{}
 
 //go:generate go run ./gen
 var Config = field.NewConfiguration([]field.SchemaField{
-	dsn, schemas, includeColumns, includeLargeObjects,
+	dsn, schemas, includeColumns, includeLargeObjects, syncAllDatabases,
 }, relationships...)

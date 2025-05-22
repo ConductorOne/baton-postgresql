@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -11,32 +10,16 @@ import (
 )
 
 type ClientDatabasesPool struct {
-	databases map[string]*Client
-	opts      []ClientOpt
-	mutex     *sync.Mutex
-	logger    *Logger
-	dsn       string
-	// Only used if dsn have any database name
-	defaultClientWithDatabase *Client
-	defaultClientDsn          *Client
+	databases        map[string]*Client
+	opts             []ClientOpt
+	mutex            *sync.Mutex
+	logger           *Logger
+	dsn              string
+	defaultClientDsn *Client
 }
 
 func NewClientDatabasesPool(ctx context.Context, dsn string, opts ...ClientOpt) (*ClientDatabasesPool, error) {
 	l := ctxzap.Extract(ctx)
-
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, err
-	}
-
-	var defaultClientWithDatabase *Client
-	if config.ConnConfig.Database != "" {
-		l.Info("using default database database config", zap.String("database", config.ConnConfig.Database))
-		defaultClientWithDatabase, err = New(ctx, dsn, opts...)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	defaultClientDsn, err := New(ctx, dsn, opts...)
 	if err != nil {
@@ -45,22 +28,13 @@ func NewClientDatabasesPool(ctx context.Context, dsn string, opts ...ClientOpt) 
 	}
 
 	return &ClientDatabasesPool{
-		dsn:                       dsn,
-		databases:                 make(map[string]*Client),
-		opts:                      opts,
-		mutex:                     &sync.Mutex{},
-		logger:                    &Logger{},
-		defaultClientWithDatabase: defaultClientWithDatabase,
-		defaultClientDsn:          defaultClientDsn,
+		dsn:              dsn,
+		databases:        make(map[string]*Client),
+		opts:             opts,
+		mutex:            &sync.Mutex{},
+		logger:           &Logger{},
+		defaultClientDsn: defaultClientDsn,
 	}, nil
-}
-
-func (c *ClientDatabasesPool) DefaultDatabase(ctx context.Context) string {
-	if c.defaultClientWithDatabase == nil {
-		return ""
-	}
-
-	return c.defaultClientWithDatabase.cfg.ConnConfig.Database
 }
 
 func (p *ClientDatabasesPool) Default(ctx context.Context) *Client {
@@ -69,15 +43,6 @@ func (p *ClientDatabasesPool) Default(ctx context.Context) *Client {
 
 func (p *ClientDatabasesPool) Get(ctx context.Context, database string) (*Client, string, error) {
 	l := ctxzap.Extract(ctx)
-
-	if database == "" {
-		if p.defaultClientWithDatabase != nil {
-			dbName := p.defaultClientWithDatabase.db.Config().ConnConfig.Database
-			return p.defaultClientWithDatabase, dbName, nil
-		}
-
-		return nil, "", errors.New("database name is required")
-	}
 
 	dbModel, err := p.defaultClientDsn.GetDatabaseById(ctx, database)
 	if err != nil {
@@ -178,4 +143,8 @@ func New(ctx context.Context, dsn string, opts ...ClientOpt) (*Client, error) {
 	}
 
 	return c, nil
+}
+
+func (c *Client) DatabaseName() string {
+	return c.cfg.ConnConfig.Database
 }
