@@ -73,6 +73,12 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 			continue
 		}
 
+		if o.Name == "template1" {
+			// Skip the template1 database, as it is a system database and not meant to be used directly.
+			l.Debug("skipping system database", zap.String("database", o.Name))
+			continue
+		}
+
 		_, _, err := r.clientPool.Get(ctx, fmt.Sprintf("%d", o.ID))
 		if err != nil {
 			var pgErr *pgconn.PgError
