@@ -23,6 +23,11 @@ var databaseResourceType = &v2.ResourceType{
 	Annotations: nil,
 }
 
+var databaseToSkip = map[string]bool{
+	"template0": true,
+	"template1": true,
+}
+
 type databaseSyncer struct {
 	resourceType     *v2.ResourceType
 	clientPool       *postgres.ClientDatabasesPool
@@ -73,8 +78,8 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 			continue
 		}
 
-		if o.Name == "template1" {
-			// Skip the template1 database, as it is a system database and not meant to be used directly.
+		if databaseToSkip[o.Name] {
+			// Skip system databases that are not meant to be synced.
 			l.Debug("skipping system database", zap.String("database", o.Name))
 			continue
 		}
