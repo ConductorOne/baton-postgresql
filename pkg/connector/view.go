@@ -94,6 +94,8 @@ func (r *viewSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pT
 	}
 
 	for _, en := range ens {
+		annos := annotations.Annotations(en.Annotations)
+		annos.Update(&v2.EntitlementImmutable{})
 		en.DisplayName = fmt.Sprintf("%s on %s", dbModel.Name, en.DisplayName)
 	}
 

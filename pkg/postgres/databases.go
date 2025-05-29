@@ -202,3 +202,43 @@ func (c *Client) RevokeDatabase(ctx context.Context, dbName string, target strin
 	_, err := c.db.Exec(ctx, q)
 	return err
 }
+
+func (c *Client) GrantTable(ctx context.Context, dbName string, tableName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting database", zap.String("dbName", dbName), zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
+	sanitizedTableName := pgx.Identifier{tableName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+
+	q := fmt.Sprintf("GRANT %s ON TABLE %s.%s TO %s", sanitizedPrivilege, sanitizedDbName, sanitizedTableName, sanitizedPrincipalName)
+
+	if isGrant {
+		q += " WITH GRANT OPTION"
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
+
+func (c *Client) RevokeTable(ctx context.Context, dbName string, tableName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting database", zap.String("dbName", dbName), zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedDbName := pgx.Identifier{dbName}.Sanitize()
+	sanitizedTableName := pgx.Identifier{tableName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+
+	var q string
+
+	if isGrant {
+		q = fmt.Sprintf("REVOKE GRANT OPTION for %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedDbName, sanitizedTableName, sanitizedPrincipalName)
+	} else {
+		q = fmt.Sprintf("REVOKE %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedDbName, sanitizedTableName, sanitizedPrincipalName)
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
