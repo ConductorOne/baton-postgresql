@@ -2,8 +2,9 @@ package testutil
 
 import (
 	"context"
-	"database/sql"
 	_ "embed"
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"testing"
 	"time"
 
@@ -17,16 +18,29 @@ import (
 var initScript string
 
 type SQLContainer struct {
-	sqlDB     *sql.DB
+	sqlDB     *pgxpool.Pool
 	container *postgres.PostgresContainer
+	dsn       string
 }
 
-func (d *SQLContainer) Db() *sql.DB {
+func (d *SQLContainer) Dsn() string {
+	return d.dsn
+}
+
+func (d *SQLContainer) Db() *pgxpool.Pool {
 	return d.sqlDB
 }
 
+func (d *SQLContainer) Container() *postgres.PostgresContainer {
+	return d.container
+}
+
+func (d *SQLContainer) Role() string {
+	return "test_role"
+}
+
 func SetupPostgresContainer(t *testing.T) *SQLContainer {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	pgContainer, err := postgres.Run(ctx,
@@ -41,25 +55,29 @@ func SetupPostgresContainer(t *testing.T) *SQLContainer {
 
 	assert.NoError(t, err)
 
-	t.Cleanup(func() {
-		if err := pgContainer.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate pgContainer: %s", err)
-		}
-	})
-
 	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
 	assert.NoError(t, err)
 
 	t.Log("Postgres connection: " + connStr)
 
-	sqlDB, err := sql.Open("pgx", connStr)
+	config, err := pgxpool.ParseConfig(connStr)
 	assert.NoError(t, err)
 
-	_, err = sqlDB.Exec(initScript)
+	config.ConnConfig.LogLevel = pgx.LogLevelDebug
+	config.ConnConfig.Logger = pgx.LoggerFunc(func(ctx context.Context, level pgx.LogLevel, msg string, data map[string]interface{}) {
+		t.Logf("PGX %s: %s - %v", level.String(), msg, data)
+	})
+	config.MaxConns = 2
+
+	db, err := pgxpool.ConnectConfig(ctx, config)
+	assert.NoError(t, err)
+
+	_, err = db.Exec(ctx, initScript)
 	assert.NoError(t, err)
 
 	return &SQLContainer{
-		sqlDB:     sqlDB,
+		sqlDB:     db,
 		container: pgContainer,
+		dsn:       connStr,
 	}
 }

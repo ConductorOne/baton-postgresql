@@ -124,7 +124,7 @@ func (c *Client) GrantProcedure(ctx context.Context, schema, procedure string, p
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
 	sanitizedProcedure := pgx.Identifier{procedure}.Sanitize()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
-	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
 
 	q := fmt.Sprintf("GRANT %s ON PROCEDURE %s.%s TO %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
 
@@ -143,12 +143,12 @@ func (c *Client) RevokeProcedure(ctx context.Context, schema, procedure string, 
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
 	sanitizedProcedure := pgx.Identifier{procedure}.Sanitize()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
-	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
 
 	var q string
 
 	if isGrant {
-		q = fmt.Sprintf("REVOKE GRANT OPTION for %s ON PROCEDURE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
+		q = fmt.Sprintf("REVOKE GRANT OPTION FOR %s ON PROCEDURE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
 	} else {
 		q = fmt.Sprintf("REVOKE %s ON PROCEDURE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
 	}

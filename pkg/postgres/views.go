@@ -104,7 +104,7 @@ func (c *Client) GrantView(ctx context.Context, schema, viewName string, princip
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
 	sanitizedViewName := pgx.Identifier{viewName}.Sanitize()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
-	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
 
 	q := fmt.Sprintf("GRANT %s ON %s.%s TO %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
 
@@ -123,12 +123,11 @@ func (c *Client) RevokeView(ctx context.Context, schema, viewName string, princi
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
 	sanitizedViewName := pgx.Identifier{viewName}.Sanitize()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
-	sanitizedPrivilege := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
-
+	sanitizedPrivilege := sanitizePrivilege(privilege)
 	var q string
 
 	if isGrant {
-		q = fmt.Sprintf("REVOKE GRANT OPTION for %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
+		q = fmt.Sprintf("REVOKE GRANT OPTION FOR %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
 	} else {
 		q = fmt.Sprintf("REVOKE %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
 	}
