@@ -3,10 +3,11 @@ package testutil
 import (
 	"context"
 	_ "embed"
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/pgxpool"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
@@ -39,8 +40,8 @@ func (d *SQLContainer) Role() string {
 	return "test_role"
 }
 
-func SetupPostgresContainer(t *testing.T) *SQLContainer {
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+func SetupPostgresContainer(ctx context.Context, t *testing.T) *SQLContainer {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	pgContainer, err := postgres.Run(ctx,

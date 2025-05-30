@@ -1,15 +1,17 @@
 package postgres
 
 import (
+	"context"
+	"testing"
+
 	"github.com/conductorone/baton-postgresql/pkg/testutil"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestTableGrantRevoke(t *testing.T) {
-	ctx := t.Context()
+	ctx := context.Background()
 
-	container := testutil.SetupPostgresContainer(t)
+	container := testutil.SetupPostgresContainer(ctx, t)
 
 	client, err := New(ctx, container.Dsn())
 	assert.NoError(t, err)
