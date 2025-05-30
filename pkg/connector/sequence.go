@@ -94,8 +94,6 @@ func (r *sequenceSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 	}
 
 	for _, en := range ens {
-		annos := annotations.Annotations(en.Annotations)
-		annos.Update(&v2.EntitlementImmutable{})
 		en.DisplayName = fmt.Sprintf("%s on %s", dbModel.Name, en.DisplayName)
 	}
 
@@ -129,6 +127,67 @@ func (r *sequenceSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 	}
 
 	return ret, nextPageToken, nil, nil
+}
+
+func (r *sequenceSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+	}
+
+	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbId, rID, err := parseWithDatabaseID(entitlement.Resource.Id.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sequence, err := dbClient.GetSequence(ctx, rID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = dbClient.GrantSequence(ctx, sequence.Schema, sequence.Name, principal.DisplayName, privilegeName, isGrant)
+	return nil, nil, err
+}
+
+func (r *sequenceSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	entitlement := grant.Entitlement
+	principal := grant.Principal
+
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+	}
+
+	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	dbId, rID, err := parseWithDatabaseID(entitlement.Resource.Id.Resource)
+	if err != nil {
+		return nil, err
+	}
+
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
+	if err != nil {
+		return nil, err
+	}
+
+	sequence, err := dbClient.GetSequence(ctx, rID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = dbClient.RevokeSequence(ctx, sequence.Schema, sequence.Name, principal.DisplayName, privilegeName, isGrant)
+	return nil, err
 }
 
 func newSequenceSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *sequenceSyncer {

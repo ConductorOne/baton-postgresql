@@ -104,9 +104,6 @@ func (r *tableSyncer) Entitlements(ctx context.Context, resource *v2.Resource, p
 	}
 
 	for _, en := range ens {
-		annos := annotations.Annotations(en.Annotations)
-		annos.Update(&v2.EntitlementImmutable{})
-
 		en.DisplayName = fmt.Sprintf("%s - %s", dbModel.Name, resource.DisplayName)
 	}
 
@@ -157,7 +154,7 @@ func (r *tableSyncer) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, nil, err
 	}
 
-	dbClient, dbName, err := r.clientPool.Get(ctx, dbId)
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -167,7 +164,7 @@ func (r *tableSyncer) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, nil, err
 	}
 
-	err = dbClient.GrantTable(ctx, dbName, table.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.GrantTable(ctx, table.Schema, table.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, nil, err
 }
 
@@ -189,7 +186,7 @@ func (r *tableSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 		return nil, err
 	}
 
-	dbClient, dbName, err := r.clientPool.Get(ctx, dbId)
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +196,7 @@ func (r *tableSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 		return nil, err
 	}
 
-	err = dbClient.RevokeTable(ctx, dbName, table.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.RevokeTable(ctx, table.Schema, table.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, err
 }
 
