@@ -133,7 +133,7 @@ func (r *procedureSyncer) Grant(ctx context.Context, principal *v2.Resource, ent
 		return nil, nil, err
 	}
 
-	err = dbClient.GrantProcedure(ctx, procedure.Schema, procedure.Signature(), principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.GrantProcedure(ctx, procedure.Schema, procedure.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, nil, err
 }
 
@@ -165,7 +165,7 @@ func (r *procedureSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 		return nil, err
 	}
 
-	err = dbClient.RevokeProcedure(ctx, procedure.Schema, procedure.Signature(), principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.RevokeProcedure(ctx, procedure.Schema, procedure.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, err
 }
 

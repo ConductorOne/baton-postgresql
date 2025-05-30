@@ -39,6 +39,7 @@ func (t *ProcedureModel) AllPrivileges() PrivilegeSet {
 func (t *ProcedureModel) DefaultPrivileges() PrivilegeSet {
 	return Execute
 }
+
 func (t *ProcedureModel) Signature() string {
 	return fmt.Sprintf("%s(%s)", t.Name, t.Arguments)
 }

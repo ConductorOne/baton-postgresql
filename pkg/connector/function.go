@@ -150,7 +150,7 @@ func (r *functionSyncer) Grant(ctx context.Context, principal *v2.Resource, enti
 		return nil, nil, err
 	}
 
-	err = dbClient.GrantSequence(ctx, function.Schema, function.Signature(), principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.GrantSequence(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, nil, err
 }
 
@@ -182,7 +182,7 @@ func (r *functionSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotatio
 		return nil, err
 	}
 
-	err = dbClient.RevokeSequence(ctx, function.Schema, function.Signature(), principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.RevokeSequence(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, err
 }
 

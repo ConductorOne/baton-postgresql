@@ -56,6 +56,16 @@ CREATE SEQUENCE test_table_seq
     NO MAXVALUE
     CACHE 1;
 
+-- Create procedures for testing
+CREATE OR REPLACE PROCEDURE add_test_item(item_name VARCHAR)
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    INSERT INTO test_table (name) VALUES (item_name);
+END;
+$$;
+
 -- create roles and users
 
 CREATE ROLE test_role WITH LOGIN PASSWORD 'test_password';
