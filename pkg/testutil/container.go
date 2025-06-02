@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -56,15 +57,15 @@ func SetupPostgresContainer(ctx context.Context, t *testing.T) *SQLContainer {
 		),
 	)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	t.Log("Postgres connection: " + connStr)
 
 	config, err := pgxpool.ParseConfig(connStr)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	config.ConnConfig.LogLevel = pgx.LogLevelDebug
 	config.ConnConfig.Logger = pgx.LoggerFunc(func(ctx context.Context, level pgx.LogLevel, msg string, data map[string]interface{}) {
@@ -73,10 +74,10 @@ func SetupPostgresContainer(ctx context.Context, t *testing.T) *SQLContainer {
 	config.MaxConns = 2
 
 	db, err := pgxpool.ConnectConfig(ctx, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = db.Exec(ctx, initScript)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	return &SQLContainer{
 		sqlDB:     db,
