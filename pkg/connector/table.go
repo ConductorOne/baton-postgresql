@@ -165,7 +165,17 @@ func (r *tableSyncer) Grant(ctx context.Context, principal *v2.Resource, entitle
 	}
 
 	err = dbClient.GrantTable(ctx, table.Schema, table.Name, principal.DisplayName, privilegeName, isGrant)
-	return nil, nil, err
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return []*v2.Grant{
+		{
+			Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.Id.ResourceType, principal.Id.Resource),
+			Entitlement: entitlement,
+			Principal:   principal,
+		},
+	}, nil, nil
 }
 
 func (r *tableSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {

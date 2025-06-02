@@ -165,7 +165,7 @@ func (r *viewSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlem
 			Entitlement: entitlement,
 			Principal:   principal,
 		},
-	}, nil, err
+	}, nil, nil
 }
 
 func (r *viewSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {

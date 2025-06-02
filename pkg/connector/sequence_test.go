@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGrantRevokeView(t *testing.T) {
+func TestGrantRevokeSequence(t *testing.T) {
 	ctx, syncer, manager, client := newTestConnector(t)
 
 	err := syncer.Sync(ctx)
@@ -19,6 +19,7 @@ func TestGrantRevokeView(t *testing.T) {
 	require.NoError(t, err)
 
 	c1z, err := manager.LoadC1Z(ctx)
+	require.NoError(t, err)
 	require.NoError(t, err)
 	defer func(c1z *dotc1z.C1File) {
 		err := c1z.Close()
@@ -33,11 +34,11 @@ func TestGrantRevokeView(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, roleResource)
 
-	viewResource, err := getByDisplayName(ctx, c1z, viewResourceType, "test_table_view")
+	sequenceResource, err := getByDisplayName(ctx, c1z, sequenceResourceType, "test_table_seq")
 	require.NoError(t, err)
-	require.NotNil(t, viewResource)
+	require.NotNil(t, sequenceResource)
 
-	dbId, rId, err := parseWithDatabaseID(viewResource.Id.Resource)
+	dbId, rId, err := parseWithDatabaseID(sequenceResource.Id.Resource)
 	require.NoError(t, err)
 
 	grantResponse, err := client.Grant(ctx, &connectorv2.GrantManagerServiceGrantRequest{
@@ -46,11 +47,11 @@ func TestGrantRevokeView(t *testing.T) {
 			DisplayName: roleResource.DisplayName,
 		},
 		Entitlement: &connectorv2.Entitlement{
-			Id: fmt.Sprintf("entitlement:view:db%s:%d:select:grant", dbId, rId),
+			Id: fmt.Sprintf("entitlement:sequence:db%s:%d:select", dbId, rId),
 			Resource: &connectorv2.Resource{
 				Id: &connectorv2.ResourceId{
-					ResourceType: viewResourceType.Id,
-					Resource:     fmt.Sprintf("view:db%s:%d", dbId, rId),
+					ResourceType: sequenceResourceType.Id,
+					Resource:     fmt.Sprintf("sequence:db%s:%d", dbId, rId),
 				},
 			},
 		},

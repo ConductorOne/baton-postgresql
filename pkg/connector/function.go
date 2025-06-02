@@ -150,8 +150,17 @@ func (r *functionSyncer) Grant(ctx context.Context, principal *v2.Resource, enti
 		return nil, nil, err
 	}
 
-	err = dbClient.GrantSequence(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
-	return nil, nil, err
+	err = dbClient.GrantFunction(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []*v2.Grant{
+		{
+			Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.Id.ResourceType, principal.Id.Resource),
+			Entitlement: entitlement,
+			Principal:   principal,
+		},
+	}, nil, nil
 }
 
 func (r *functionSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
@@ -182,7 +191,7 @@ func (r *functionSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotatio
 		return nil, err
 	}
 
-	err = dbClient.RevokeSequence(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.RevokeFunction(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
 	return nil, err
 }
 
