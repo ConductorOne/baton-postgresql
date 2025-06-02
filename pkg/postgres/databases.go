@@ -170,8 +170,8 @@ func transformPrivilege(privilege string) string {
 func sanitizePrivilege(privilege string) string {
 	temp := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
 
-	if strings.Count(privilege, "\"") != 2 {
-		return strings.ReplaceAll(privilege, "\"", "")
+	if strings.Count(temp, "\"") != 2 {
+		return strings.ReplaceAll(temp, "\"", "")
 	}
 
 	return temp
