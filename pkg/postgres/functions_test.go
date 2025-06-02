@@ -17,24 +17,26 @@ func TestFunctionGrantRevoke(t *testing.T) {
 	client, err := New(ctx, container.Dsn())
 	require.NoError(t, err)
 
+	functionModel := &FunctionModel{Name: "get_test_item_count", Arguments: ""}
+
 	// Is grant true
-	err = client.GrantFunction(ctx, "public", "get_test_item_count", container.Role(), Execute.Name(), true)
+	err = client.GrantFunction(ctx, "public", functionModel, container.Role(), Execute.Name(), true)
 	require.NoError(t, err)
 
-	err = client.RevokeFunction(ctx, "public", "get_test_item_count", container.Role(), Execute.Name(), true)
+	err = client.RevokeFunction(ctx, "public", functionModel, container.Role(), Execute.Name(), true)
 	require.NoError(t, err)
 
 	// is grant false
-	err = client.GrantFunction(ctx, "public", "get_test_item_count", container.Role(), Execute.Name(), false)
+	err = client.GrantFunction(ctx, "public", functionModel, container.Role(), Execute.Name(), false)
 	require.NoError(t, err)
 
-	err = client.RevokeFunction(ctx, "public", "get_test_item_count", container.Role(), Execute.Name(), false)
+	err = client.RevokeFunction(ctx, "public", functionModel, container.Role(), Execute.Name(), false)
 	require.NoError(t, err)
 
 	// revoke without grant
-	err = client.RevokeFunction(ctx, "public", "get_test_item_count", container.Role(), Execute.Name(), false)
+	err = client.RevokeFunction(ctx, "public", functionModel, container.Role(), Execute.Name(), false)
 	require.NoError(t, err)
 
-	err = client.RevokeFunction(ctx, "public", "get_test_item_count", container.Role(), Execute.Name(), true)
+	err = client.RevokeFunction(ctx, "public", functionModel, container.Role(), Execute.Name(), true)
 	require.NoError(t, err)
 }

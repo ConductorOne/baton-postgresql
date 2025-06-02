@@ -57,7 +57,7 @@ func (r *procedureSyncer) List(ctx context.Context, parentResourceID *v2.Resourc
 		var annos annotations.Annotations
 
 		ret = append(ret, &v2.Resource{
-			DisplayName: o.Name,
+			DisplayName: o.Signature(),
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
 				Resource:     formatWithDatabaseID(procedureResourceType.Id, db, o.ID),
@@ -110,7 +110,7 @@ func (r *procedureSyncer) Grants(ctx context.Context, resource *v2.Resource, pTo
 
 func (r *procedureSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	if principal.Id.ResourceType != roleResourceType.Id {
-		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have procedure granted")
 	}
 
 	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
@@ -133,7 +133,7 @@ func (r *procedureSyncer) Grant(ctx context.Context, principal *v2.Resource, ent
 		return nil, nil, err
 	}
 
-	err = dbClient.GrantProcedure(ctx, procedure.Schema, procedure.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.GrantProcedure(ctx, procedure.Schema, procedure, principal.DisplayName, privilegeName, isGrant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,7 +151,7 @@ func (r *procedureSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 	principal := grant.Principal
 
 	if principal.Id.ResourceType != roleResourceType.Id {
-		return nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+		return nil, fmt.Errorf("baton-postgres: only users and roles can have procedure revoked")
 	}
 
 	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
@@ -174,7 +174,7 @@ func (r *procedureSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotati
 		return nil, err
 	}
 
-	err = dbClient.RevokeProcedure(ctx, procedure.Schema, procedure.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.RevokeProcedure(ctx, procedure.Schema, procedure, principal.DisplayName, privilegeName, isGrant)
 	return nil, err
 }
 

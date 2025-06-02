@@ -118,12 +118,12 @@ where a."prokind" = 'p'
 	return ret, nextPageToken, nil
 }
 
-func (c *Client) GrantProcedure(ctx context.Context, schema, procedure string, principalName string, privilege string, isGrant bool) error {
+func (c *Client) GrantProcedure(ctx context.Context, schema string, procedure *ProcedureModel, principalName string, privilege string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("granting procedure", zap.String("principalName", principalName), zap.String("privilege", privilege))
 
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
-	sanitizedProcedure := pgx.Identifier{procedure}.Sanitize()
+	sanitizedProcedure := procedure.Signature()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
 	sanitizedPrivilege := sanitizePrivilege(privilege)
 
@@ -137,12 +137,12 @@ func (c *Client) GrantProcedure(ctx context.Context, schema, procedure string, p
 	return err
 }
 
-func (c *Client) RevokeProcedure(ctx context.Context, schema, procedure string, principalName string, privilege string, isGrant bool) error {
+func (c *Client) RevokeProcedure(ctx context.Context, schema string, procedure *ProcedureModel, principalName string, privilege string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("revoking procedure", zap.String("principalName", principalName), zap.String("privilege", privilege))
 
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
-	sanitizedProcedure := pgx.Identifier{procedure}.Sanitize()
+	sanitizedProcedure := procedure.Signature()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
 	sanitizedPrivilege := sanitizePrivilege(privilege)
 

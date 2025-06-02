@@ -34,7 +34,7 @@ func TestGrantRevokeProcedure(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, roleResource)
 
-	procedureResource, err := getByDisplayName(ctx, c1z, procedureResourceType, "add_test_item")
+	procedureResource, err := getByDisplayName(ctx, c1z, procedureResourceType, "add_test_item(IN item_name character varying)")
 	require.NoError(t, err)
 	require.NotNil(t, procedureResource)
 

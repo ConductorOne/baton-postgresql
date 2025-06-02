@@ -131,7 +131,7 @@ func (r *viewSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 
 func (r *viewSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	if principal.Id.ResourceType != roleResourceType.Id {
-		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have view granted")
 	}
 
 	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
@@ -173,7 +173,7 @@ func (r *viewSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.A
 	principal := grant.Principal
 
 	if principal.Id.ResourceType != roleResourceType.Id {
-		return nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+		return nil, fmt.Errorf("baton-postgres: only users and roles can have view revoked")
 	}
 
 	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)

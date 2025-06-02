@@ -18,8 +18,9 @@ var functionResourceType = &v2.ResourceType{
 }
 
 type functionSyncer struct {
-	resourceType *v2.ResourceType
-	clientPool   *postgres.ClientDatabasesPool
+	resourceType         *v2.ResourceType
+	clientPool           *postgres.ClientDatabasesPool
+	skipBuiltInFunctions bool
 }
 
 func (r *functionSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -47,7 +48,7 @@ func (r *functionSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 		return nil, "", nil, err
 	}
 
-	functions, nextPageToken, err := client.ListFunctions(ctx, parentID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
+	functions, nextPageToken, err := client.ListFunctions(ctx, parentID, r.skipBuiltInFunctions, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -57,7 +58,7 @@ func (r *functionSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 		var annos annotations.Annotations
 
 		ret = append(ret, &v2.Resource{
-			DisplayName: o.Name,
+			DisplayName: o.Signature(),
 			Id: &v2.ResourceId{
 				ResourceType: r.resourceType.Id,
 				Resource:     formatWithDatabaseID(functionResourceType.Id, db, o.ID),
@@ -127,7 +128,7 @@ func (r *functionSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 
 func (r *functionSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	if principal.Id.ResourceType != roleResourceType.Id {
-		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have function granted")
 	}
 
 	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
@@ -150,7 +151,7 @@ func (r *functionSyncer) Grant(ctx context.Context, principal *v2.Resource, enti
 		return nil, nil, err
 	}
 
-	err = dbClient.GrantFunction(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.GrantFunction(ctx, function.Schema, function, principal.DisplayName, privilegeName, isGrant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -168,7 +169,7 @@ func (r *functionSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotatio
 	principal := grant.Principal
 
 	if principal.Id.ResourceType != roleResourceType.Id {
-		return nil, fmt.Errorf("baton-postgres: only users and roles can have roles granted")
+		return nil, fmt.Errorf("baton-postgres: only users and roles can have function revoked")
 	}
 
 	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
@@ -191,13 +192,14 @@ func (r *functionSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotatio
 		return nil, err
 	}
 
-	err = dbClient.RevokeFunction(ctx, function.Schema, function.Name, principal.DisplayName, privilegeName, isGrant)
+	err = dbClient.RevokeFunction(ctx, function.Schema, function, principal.DisplayName, privilegeName, isGrant)
 	return nil, err
 }
 
-func newFunctionSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *functionSyncer {
+func newFunctionSyncer(ctx context.Context, c *postgres.ClientDatabasesPool, skipBuiltInFunctions bool) *functionSyncer {
 	return &functionSyncer{
-		resourceType: functionResourceType,
-		clientPool:   c,
+		resourceType:         functionResourceType,
+		clientPool:           c,
+		skipBuiltInFunctions: skipBuiltInFunctions,
 	}
 }

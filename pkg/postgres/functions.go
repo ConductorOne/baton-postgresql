@@ -69,7 +69,7 @@ WHERE a."oid" = $1
 	return ret, nil
 }
 
-func (c *Client) ListFunctions(ctx context.Context, schemaID int64, pager *Pager) ([]*FunctionModel, string, error) {
+func (c *Client) ListFunctions(ctx context.Context, schemaID int64, skipBuiltInFunctions bool, pager *Pager) ([]*FunctionModel, string, error) {
 	l := ctxzap.Extract(ctx)
 	l.Debug("listing functions for schema", zap.Int64("schema_id", schemaID))
 
@@ -91,6 +91,11 @@ FROM "pg_catalog"."pg_proc" a
 WHERE a."prokind" = 'f'
   AND a."pronamespace" = $1
 `)
+
+	if skipBuiltInFunctions {
+		_, _ = sb.WriteString(` AND n."nspname" NOT IN ('pg_catalog', 'information_schema') `)
+	}
+
 	args = append(args, schemaID)
 	_, _ = sb.WriteString("LIMIT $2 ")
 	args = append(args, limit+1)
@@ -118,12 +123,12 @@ WHERE a."prokind" = 'f'
 	return ret, nextPageToken, nil
 }
 
-func (c *Client) GrantFunction(ctx context.Context, schema string, functionSignature string, principalName string, privilege string, isGrant bool) error {
+func (c *Client) GrantFunction(ctx context.Context, schema string, functionSignature *FunctionModel, principalName string, privilege string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("granting function", zap.String("principalName", principalName), zap.String("privilege", privilege))
 
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
-	sanitizedFunctionSignature := pgx.Identifier{functionSignature}.Sanitize()
+	sanitizedFunctionSignature := functionSignature.Signature()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
 	sanitizedPrivilege := sanitizePrivilege(privilege)
 
@@ -137,12 +142,12 @@ func (c *Client) GrantFunction(ctx context.Context, schema string, functionSigna
 	return err
 }
 
-func (c *Client) RevokeFunction(ctx context.Context, schema string, functionSignature string, principalName string, privilege string, isGrant bool) error {
+func (c *Client) RevokeFunction(ctx context.Context, schema string, functionSignature *FunctionModel, principalName string, privilege string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("revoking function", zap.String("principalName", principalName), zap.String("privilege", privilege))
 
 	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
-	sanitizedFunctionSignature := pgx.Identifier{functionSignature}.Sanitize()
+	sanitizedFunctionSignature := functionSignature.Signature()
 	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
 	sanitizedPrivilege := sanitizePrivilege(privilege)
 	var q string

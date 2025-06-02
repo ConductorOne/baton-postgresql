@@ -55,6 +55,7 @@ func newTestConnector(t *testing.T) (context.Context, sync.Syncer, manager.Manag
 		true,
 		true,
 		true,
+		true,
 	)
 	require.NoError(t, err)
 

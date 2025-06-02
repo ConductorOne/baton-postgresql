@@ -34,7 +34,7 @@ func TestGrantRevokeFunction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, roleResource)
 
-	functionResource, err := getByDisplayName(ctx, c1z, functionResourceType, "get_test_item_count")
+	functionResource, err := getByDisplayName(ctx, c1z, functionResourceType, "get_test_item_count()")
 	require.NoError(t, err)
 	require.NotNil(t, functionResource)
 
