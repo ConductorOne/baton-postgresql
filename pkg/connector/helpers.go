@@ -88,18 +88,26 @@ func formatEntitlementID(resource *v2.Resource, privName string, grant bool) str
 	}
 }
 
+// parseEntitlementID parses an entitlement ID and returns the resource type
+// resourceTypeId, resourceId, privilegeName, isGrant flag, and an error if any.
 func parseEntitlementID(id string) (string, string, string, bool, error) {
-	parts := strings.SplitN(id, ":", 5)
+	parts := strings.SplitN(id, ":", 6)
 
-	if len(parts) == 4 {
-		return parts[1], parts[2], parts[3], false, nil
+	if len(parts) <= 2 {
+		return "", "", "", false, fmt.Errorf("invalid entitlement ID: %s", id)
 	}
 
-	if len(parts) == 5 && parts[4] == "grant" {
-		return parts[1], parts[2], parts[3], true, nil
+	isGrant := false
+
+	if parts[len(parts)-1] == "grant" {
+		isGrant = true
 	}
 
-	return "", "", "", false, fmt.Errorf("invalid entilement ID %s %d", id, len(parts))
+	if strings.HasPrefix(parts[2], "db") {
+		return parts[1], fmt.Sprintf("%s:%s", parts[2], parts[3]), parts[4], isGrant, nil
+	}
+
+	return parts[1], parts[2], parts[3], isGrant, nil
 }
 
 func grantsForPrivilegeSet(

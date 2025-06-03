@@ -129,6 +129,77 @@ func (r *viewSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 	return ret, nextPageToken, nil, nil
 }
 
+func (r *viewSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have view granted")
+	}
+
+	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbId, rID, err := parseWithDatabaseID(entitlement.Resource.Id.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	view, err := dbClient.GetView(ctx, rID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = dbClient.GrantView(ctx, view.Schema, view.Name, principal.DisplayName, privilegeName, isGrant)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return []*v2.Grant{
+		{
+			Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.Id.ResourceType, principal.Id.Resource),
+			Entitlement: entitlement,
+			Principal:   principal,
+		},
+	}, nil, nil
+}
+
+func (r *viewSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	entitlement := grant.Entitlement
+	principal := grant.Principal
+
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, fmt.Errorf("baton-postgres: only users and roles can have view revoked")
+	}
+
+	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	dbId, rID, err := parseWithDatabaseID(entitlement.Resource.Id.Resource)
+	if err != nil {
+		return nil, err
+	}
+
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
+	if err != nil {
+		return nil, err
+	}
+
+	view, err := dbClient.GetView(ctx, rID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = dbClient.RevokeView(ctx, view.Schema, view.Name, principal.DisplayName, privilegeName, isGrant)
+	return nil, err
+}
+
 func newViewSyncer(ctx context.Context, c *postgres.ClientDatabasesPool) *viewSyncer {
 	return &viewSyncer{
 		resourceType: viewResourceType,

@@ -12,11 +12,12 @@ import (
 )
 
 type Postgresql struct {
-	clientPool          *postgres.ClientDatabasesPool
-	schemas             []string
-	includeColumns      bool
-	includeLargeObjects bool
-	syncAllDatabases    bool
+	clientPool           *postgres.ClientDatabasesPool
+	schemas              []string
+	includeColumns       bool
+	includeLargeObjects  bool
+	syncAllDatabases     bool
+	skipBuiltInFunctions bool
 }
 
 func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
@@ -26,7 +27,7 @@ func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.Res
 		newTableSyncer(ctx, o.clientPool, o.includeColumns),
 		newViewSyncer(ctx, o.clientPool),
 		newColumnSyncer(ctx, o.clientPool),
-		newFunctionSyncer(ctx, o.clientPool),
+		newFunctionSyncer(ctx, o.clientPool, o.skipBuiltInFunctions),
 		newProcedureSyncer(ctx, o.clientPool),
 		newLargeObjectSyncer(ctx, o.clientPool.Default(ctx), o.includeLargeObjects),
 		newDatabaseSyncer(ctx, o.clientPool, o.syncAllDatabases),
@@ -61,17 +62,26 @@ func (c *Postgresql) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.
 	return "", nil, fmt.Errorf("not implemented")
 }
 
-func New(ctx context.Context, dsn string, schemas []string, includeColumns bool, includeLargeObjects bool, syncAllDatabases bool) (*Postgresql, error) {
+func New(
+	ctx context.Context,
+	dsn string,
+	schemas []string,
+	includeColumns bool,
+	includeLargeObjects bool,
+	syncAllDatabases bool,
+	skipBuiltInFunctions bool,
+) (*Postgresql, error) {
 	clientPool, err := postgres.NewClientDatabasesPool(ctx, dsn, postgres.WithSchemaFilter(schemas))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres client pool: %w", err)
 	}
 
 	return &Postgresql{
-		clientPool:          clientPool,
-		schemas:             schemas,
-		includeColumns:      includeColumns,
-		includeLargeObjects: includeLargeObjects,
-		syncAllDatabases:    syncAllDatabases,
+		clientPool:           clientPool,
+		schemas:              schemas,
+		includeColumns:       includeColumns,
+		includeLargeObjects:  includeLargeObjects,
+		syncAllDatabases:     syncAllDatabases,
+		skipBuiltInFunctions: skipBuiltInFunctions,
 	}, nil
 }
