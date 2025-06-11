@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v4"
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -13,11 +16,12 @@ import (
 )
 
 type ProcedureModel struct {
-	ID      int64    `db:"oid"`
-	Name    string   `db:"proname"`
-	Schema  string   `db:"nspname"`
-	OwnerID int64    `db:"proowner"`
-	ACLs    []string `db:"proacl"`
+	ID        int64    `db:"oid"`
+	Name      string   `db:"proname"`
+	Schema    string   `db:"nspname"`
+	OwnerID   int64    `db:"proowner"`
+	ACLs      []string `db:"proacl"`
+	Arguments string   `db:"arguments"`
 }
 
 func (t *ProcedureModel) GetOwnerID() int64 {
@@ -36,6 +40,10 @@ func (t *ProcedureModel) DefaultPrivileges() PrivilegeSet {
 	return Execute
 }
 
+func (t *ProcedureModel) Signature() string {
+	return fmt.Sprintf("%s(%s)", t.Name, t.Arguments)
+}
+
 func (c *Client) GetProcedure(ctx context.Context, functionID int64) (*ProcedureModel, error) {
 	ret := &ProcedureModel{}
 
@@ -44,7 +52,9 @@ SELECT DISTINCT
        a."oid"::int,
        a."proname",
        n."nspname",
-       a."proowner"::int, a."proacl"
+       a."proowner"::int,
+       a."proacl",
+       pg_get_function_arguments(a.oid) as arguments
 FROM "pg_catalog"."pg_proc" a
          LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
 WHERE a."oid" = $1
@@ -69,7 +79,13 @@ func (c *Client) ListProcedures(ctx context.Context, schemaID int64, pager *Page
 	var args []interface{}
 	sb := &strings.Builder{}
 	_, _ = sb.WriteString(`
-select a."oid"::int, a."proname", n."nspname", a."proowner"::int, a."proacl"
+select 
+    a."oid"::int,
+    a."proname",
+    n."nspname",
+    a."proowner"::int,
+    a."proacl",
+    pg_get_function_arguments(a.oid) as arguments
 from "pg_catalog"."pg_proc" a
          LEFT JOIN pg_namespace n ON n."oid" = a."pronamespace"
 where a."prokind" = 'p'
@@ -100,4 +116,44 @@ where a."prokind" = 'p'
 	}
 
 	return ret, nextPageToken, nil
+}
+
+func (c *Client) GrantProcedure(ctx context.Context, schema string, procedure *ProcedureModel, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting procedure", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedProcedure := procedure.Signature()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	q := fmt.Sprintf("GRANT %s ON PROCEDURE %s.%s TO %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
+
+	if isGrant {
+		q += withGrantOptions
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
+
+func (c *Client) RevokeProcedure(ctx context.Context, schema string, procedure *ProcedureModel, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("revoking procedure", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedProcedure := procedure.Signature()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	var q string
+
+	if isGrant {
+		q = fmt.Sprintf("REVOKE GRANT OPTION FOR %s ON PROCEDURE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
+	} else {
+		q = fmt.Sprintf("REVOKE %s ON PROCEDURE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedProcedure, sanitizedPrincipalName)
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
 }

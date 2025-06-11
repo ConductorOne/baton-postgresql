@@ -139,6 +139,77 @@ func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken 
 	return ret, nextPageToken, nil, nil
 }
 
+func (r *tableSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, nil, fmt.Errorf("baton-postgres: only users and roles can have table granted")
+	}
+
+	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbId, rID, err := parseWithDatabaseID(entitlement.Resource.Id.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	table, err := dbClient.GetTable(ctx, rID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = dbClient.GrantTable(ctx, table.Schema, table.Name, principal.DisplayName, privilegeName, isGrant)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return []*v2.Grant{
+		{
+			Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.Id.ResourceType, principal.Id.Resource),
+			Entitlement: entitlement,
+			Principal:   principal,
+		},
+	}, nil, nil
+}
+
+func (r *tableSyncer) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	entitlement := grant.Entitlement
+	principal := grant.Principal
+
+	if principal.Id.ResourceType != roleResourceType.Id {
+		return nil, fmt.Errorf("baton-postgres: only users and roles can have table revoked")
+	}
+
+	_, _, privilegeName, isGrant, err := parseEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	dbId, rID, err := parseWithDatabaseID(entitlement.Resource.Id.Resource)
+	if err != nil {
+		return nil, err
+	}
+
+	dbClient, _, err := r.clientPool.Get(ctx, dbId)
+	if err != nil {
+		return nil, err
+	}
+
+	table, err := dbClient.GetTable(ctx, rID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = dbClient.RevokeTable(ctx, table.Schema, table.Name, principal.DisplayName, privilegeName, isGrant)
+	return nil, err
+}
+
 func newTableSyncer(ctx context.Context, c *postgres.ClientDatabasesPool, includeColumns bool) *tableSyncer {
 	return &tableSyncer{
 		resourceType:   tableResourceType,

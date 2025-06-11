@@ -9,6 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const withGrantOptions = " WITH GRANT OPTION"
+
 type ClientDatabasesPool struct {
 	databases        map[string]*Client
 	opts             []ClientOpt

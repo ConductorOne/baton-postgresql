@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v4"
+	"go.uber.org/zap"
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -91,4 +95,43 @@ WHERE n."oid" = $1 AND c."relkind" = 'v'
 	}
 
 	return ret, nextPageToken, nil
+}
+
+func (c *Client) GrantView(ctx context.Context, schema, viewName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting view", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedViewName := pgx.Identifier{viewName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	q := fmt.Sprintf("GRANT %s ON %s.%s TO %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
+
+	if isGrant {
+		q += " WITH GRANT OPTION"
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
+
+func (c *Client) RevokeView(ctx context.Context, schema, viewName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("revoking view", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedViewName := pgx.Identifier{viewName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+	var q string
+
+	if isGrant {
+		q = fmt.Sprintf("REVOKE GRANT OPTION FOR %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
+	} else {
+		q = fmt.Sprintf("REVOKE %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedViewName, sanitizedPrincipalName)
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
 }

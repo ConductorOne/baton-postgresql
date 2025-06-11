@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v4"
+	"go.uber.org/zap"
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -101,4 +105,44 @@ WHERE n."oid" = $1
 	}
 
 	return ret, nextPageToken, nil
+}
+
+func (c *Client) GrantSequence(ctx context.Context, schema, sequenceName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting sequence", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedSequenceName := pgx.Identifier{sequenceName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	q := fmt.Sprintf("GRANT %s ON %s.%s TO %s", sanitizedPrivilege, sanitizedSchema, sanitizedSequenceName, sanitizedPrincipalName)
+
+	if isGrant {
+		q += withGrantOptions
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
+
+func (c *Client) RevokeSequence(ctx context.Context, schema, sequenceName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("revoking sequence", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedSequenceName := pgx.Identifier{sequenceName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	var q string
+
+	if isGrant {
+		q = fmt.Sprintf("REVOKE GRANT OPTION FOR %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedSequenceName, sanitizedPrincipalName)
+	} else {
+		q = fmt.Sprintf("REVOKE %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedSequenceName, sanitizedPrincipalName)
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
 }

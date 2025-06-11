@@ -167,6 +167,16 @@ func transformPrivilege(privilege string) string {
 	return strings.ReplaceAll(privilege, "-", "")
 }
 
+func sanitizePrivilege(privilege string) string {
+	temp := pgx.Identifier{transformPrivilege(privilege)}.Sanitize()
+
+	if strings.Count(temp, "\"") == 2 {
+		return strings.ReplaceAll(temp, "\"", "")
+	}
+
+	return temp
+}
+
 func (c *Client) GrantDatabase(ctx context.Context, dbName string, principalName string, privilege string, isGrant bool) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("granting database", zap.String("dbName", dbName), zap.String("principalName", principalName), zap.String("privilege", privilege))

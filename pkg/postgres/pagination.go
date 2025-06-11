@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	MaxPageSize = 100
-	MinPageSize = 10
+	MaxPageSize = 500
+	MinPageSize = 100
 )
 
 type Pager struct {

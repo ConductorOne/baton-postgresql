@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v4"
+	"go.uber.org/zap"
 
 	"github.com/georgysavva/scany/pgxscan"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -91,4 +95,44 @@ WHERE n."nspname" = $1
 	}
 
 	return ret, nextPageToken, nil
+}
+
+func (c *Client) GrantTable(ctx context.Context, schema string, tableName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("granting table", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedTableName := pgx.Identifier{tableName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	q := fmt.Sprintf("GRANT %s ON TABLE %s.%s TO %s", sanitizedPrivilege, sanitizedSchema, sanitizedTableName, sanitizedPrincipalName)
+
+	if isGrant {
+		q += withGrantOptions
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
+}
+
+func (c *Client) RevokeTable(ctx context.Context, schema string, tableName string, principalName string, privilege string, isGrant bool) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("revoking table", zap.String("principalName", principalName), zap.String("privilege", privilege))
+
+	sanitizedSchema := pgx.Identifier{schema}.Sanitize()
+	sanitizedTableName := pgx.Identifier{tableName}.Sanitize()
+	sanitizedPrincipalName := pgx.Identifier{principalName}.Sanitize()
+	sanitizedPrivilege := sanitizePrivilege(privilege)
+
+	var q string
+
+	if isGrant {
+		q = fmt.Sprintf("REVOKE GRANT OPTION FOR %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedTableName, sanitizedPrincipalName)
+	} else {
+		q = fmt.Sprintf("REVOKE %s ON TABLE %s.%s FROM %s", sanitizedPrivilege, sanitizedSchema, sanitizedTableName, sanitizedPrincipalName)
+	}
+
+	_, err := c.db.Exec(ctx, q)
+	return err
 }

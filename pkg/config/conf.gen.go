@@ -9,6 +9,7 @@ type Postgresql struct {
 	IncludeColumns bool `mapstructure:"include-columns"`
 	IncludeLargeObjects bool `mapstructure:"include-large-objects"`
 	SyncAllDatabases bool `mapstructure:"sync-all-databases"`
+	SkipBuiltInFunctions bool `mapstructure:"skip-built-in-functions"`
 }
 
 func (c* Postgresql) findFieldByTag(tagValue string) (any, bool) {
