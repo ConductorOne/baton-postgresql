@@ -253,10 +253,33 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 			l.Warn("error revoking function grants", zap.String("schema", schema), zap.Error(err))
 		}
 
-		revokeTypesQuery := fmt.Sprintf("REVOKE ALL ON ALL TYPES IN SCHEMA %s FROM %s", sanitizedSchema, sanitizedRoleName)
-		l.Debug("revoking type grants", zap.String("query", revokeTypesQuery))
-		if _, err := c.db.Exec(ctx, revokeTypesQuery); err != nil {
-			l.Warn("error revoking type grants", zap.String("schema", schema), zap.Error(err))
+		typesQuery := `
+			SELECT typname 
+			FROM pg_type t 
+			JOIN pg_namespace n ON t.typnamespace = n.oid 
+			WHERE n.nspname = $1 
+			AND t.typtype = 'c'`
+
+		typeRows, err := c.db.Query(ctx, typesQuery, schema)
+		if err != nil {
+			l.Warn("error querying types", zap.String("schema", schema), zap.Error(err))
+		} else {
+			defer typeRows.Close()
+
+			for typeRows.Next() {
+				var typeName string
+				if err := typeRows.Scan(&typeName); err != nil {
+					l.Warn("error scanning type name", zap.String("schema", schema), zap.Error(err))
+					continue
+				}
+
+				sanitizedTypeName := pgx.Identifier{schema, typeName}.Sanitize()
+				revokeTypeQuery := fmt.Sprintf("REVOKE ALL ON TYPE %s FROM %s", sanitizedTypeName, sanitizedRoleName)
+				l.Debug("revoking type grants", zap.String("query", revokeTypeQuery))
+				if _, err := c.db.Exec(ctx, revokeTypeQuery); err != nil {
+					l.Warn("error revoking type grants", zap.String("schema", schema), zap.String("type", typeName), zap.Error(err))
+				}
+			}
 		}
 
 		revokeSchemaQuery := fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s", sanitizedSchema, sanitizedRoleName)
