@@ -298,7 +298,7 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 	return nil
 }
 
-// RemoveRoleFromAllRoles removes a role from all other roles
+// RemoveRoleFromAllRoles removes a role from all other roles.
 func (c *Client) RemoveRoleFromAllRoles(ctx context.Context, roleName string) error {
 	l := ctxzap.Extract(ctx)
 
