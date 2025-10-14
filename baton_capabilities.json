@@ -1,21 +1,21 @@
 {
-  "@type":  "type.googleapis.com/c1.connector.v2.ConnectorCapabilities",
-  "resourceTypeCapabilities":  [
+  "@type": "type.googleapis.com/c1.connector.v2.ConnectorCapabilities",
+  "resourceTypeCapabilities": [
     {
-      "resourceType":  {
-        "id":  "column",
-        "displayName":  "Column"
+      "resourceType": {
+        "id": "column",
+        "displayName": "Column"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "database",
-        "displayName":  "Database"
+      "resourceType": {
+        "id": "database",
+        "displayName": "Database"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION",
         "CAPABILITY_RESOURCE_CREATE",
@@ -23,44 +23,44 @@
       ]
     },
     {
-      "resourceType":  {
-        "id":  "function",
-        "displayName":  "Function"
+      "resourceType": {
+        "id": "function",
+        "displayName": "Function"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "large-object",
-        "displayName":  "Large Object"
+      "resourceType": {
+        "id": "large-object",
+        "displayName": "Large Object"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "procedure",
-        "displayName":  "Procedure"
+      "resourceType": {
+        "id": "procedure",
+        "displayName": "Procedure"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "role",
-        "displayName":  "Role",
-        "traits":  [
+      "resourceType": {
+        "id": "role",
+        "displayName": "Role",
+        "traits": [
           "TRAIT_ROLE",
           "TRAIT_USER"
         ]
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION",
         "CAPABILITY_ACCOUNT_PROVISIONING",
@@ -69,46 +69,46 @@
       ]
     },
     {
-      "resourceType":  {
-        "id":  "schema",
-        "displayName":  "Schema"
+      "resourceType": {
+        "id": "schema",
+        "displayName": "Schema"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "sequence",
-        "displayName":  "Sequence"
+      "resourceType": {
+        "id": "sequence",
+        "displayName": "Sequence"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "table",
-        "displayName":  "Table"
+      "resourceType": {
+        "id": "table",
+        "displayName": "Table"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ]
     },
     {
-      "resourceType":  {
-        "id":  "view",
-        "displayName":  "View"
+      "resourceType": {
+        "id": "view",
+        "displayName": "View"
       },
-      "capabilities":  [
+      "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ]
     }
   ],
-  "connectorCapabilities":  [
+  "connectorCapabilities": [
     "CAPABILITY_PROVISION",
     "CAPABILITY_SYNC",
     "CAPABILITY_ACCOUNT_PROVISIONING",
@@ -116,18 +116,18 @@
     "CAPABILITY_RESOURCE_CREATE",
     "CAPABILITY_RESOURCE_DELETE"
   ],
-  "credentialDetails":  {
-    "capabilityAccountProvisioning":  {
-      "supportedCredentialOptions":  [
+  "credentialDetails": {
+    "capabilityAccountProvisioning": {
+      "supportedCredentialOptions": [
         "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD"
       ],
-      "preferredCredentialOption":  "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD"
+      "preferredCredentialOption": "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD"
     },
-    "capabilityCredentialRotation":  {
-      "supportedCredentialOptions":  [
+    "capabilityCredentialRotation": {
+      "supportedCredentialOptions": [
         "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD"
       ],
-      "preferredCredentialOption":  "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD"
+      "preferredCredentialOption": "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD"
     }
   }
 }
