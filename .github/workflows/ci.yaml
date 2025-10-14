@@ -108,7 +108,7 @@ jobs:
         run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.NEW_USER_ID }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
 
       - name: Check role was granted
-        run: ./baton-postgresql && baton grants -e entitlement:role:16390:member -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.grants[]?; any(.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) or any(.grant.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login))'
+        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.grants[]?; any(.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) or any(.grant.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login))'
 
       - name: Delete user
         run: ./baton-postgresql --delete-resource "${{ env.NEW_USER_ID }}" --resource-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
