@@ -47,11 +47,12 @@ jobs:
           POSTGRES_PASSWORD: secretpassword
     env:
       BATON_LOG_LEVEL: debug
-      BATON_DSN: 'postgres://postgres:secretpassword@localhost:5432/postgres'
-      CONNECTOR_GRANT: 'grant:entitlement:role:3375:member:role:10'
-      CONNECTOR_ENTITLEMENT: 'entitlement:role:3375:member'
-      CONNECTOR_PRINCIPAL: 'role:10'
-      CONNECTOR_PRINCIPAL_TYPE: 'role'
+      BATON_DSN: "postgres://postgres:secretpassword@localhost:5432/postgres"
+      CONNECTOR_GRANT: "grant:entitlement:role:3375:member:role:10"
+      CONNECTOR_ENTITLEMENT: "entitlement:role:3375:member"
+      CONNECTOR_PRINCIPAL: "role:10"
+      CONNECTOR_PRINCIPAL_TYPE: "role"
+      CONNECTOR_NEW_USER: "testuser"
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -63,7 +64,7 @@ jobs:
         run: sudo apt install postgresql-client
       # - name: Import sql into postgres
       #   env:
-      #     PGPASSWORD: secretpassword 
+      #     PGPASSWORD: secretpassword
       #   run: psql -h localhost --user postgres -f test/ci.sql
       - name: Install baton
         run: ./scripts/get-baton.sh && mv baton /usr/local/bin
@@ -91,7 +92,30 @@ jobs:
         run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status ".grants[].principal.id.resource == \"${{ env.CONNECTOR_PRINCIPAL }}\""
 
       - name: Create user
-        run: ./baton-postgresql --create-account-login 'testuser'
+        run: ./baton-postgresql --create-account-login "${{ env.CONNECTOR_NEW_USER }}"
+
+      - name: Check user was created
+        run: ./baton-postgresql && baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?;.["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login)'
+
+      - name: Fetch user id
+        shell: bash
+        run: |
+          set -eub pipefail
+          NEW_USER_ID="$(baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login)')"
+          echo "NEW_USER_ID=$NEW_USER_ID" >> "$GITHUB_ENV"
+
+      - name: Grant role to user
+        run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.NEW_USER_ID }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
+
+      - name: Check role was granted
+        run: ./baton-postgresql && baton grants -e entitlement:role:16390:member -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.grants[]?; any(.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) or any(.grant.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login))'
+
+      - name: Delete user
+        run: ./baton-postgresql --delete-resource "${{ env.NEW_USER_ID }}" --resource-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
+
+      - name: Check user was deleted
+        run: ./baton-postgresql && baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?;.["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) | not'
+
       # TODO: get correct role id using baton CLI
       # - name: Rotate credentials for user
       #   run: ./baton-postgresql --rotate-credentials 'role:16384' --rotate-credentials-type 'role'
