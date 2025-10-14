@@ -14,6 +14,9 @@ import (
 	"go.uber.org/zap"
 )
 
+var errRevokeGrantsFromRole = errors.New("error revoking grants from role")
+var errRevokeParentRolesFromRole = errors.New("error revoking parent roles from role")
+
 type RoleModel struct {
 	ID                int64   `db:"oid"`
 	Name              string  `db:"rolname"`
@@ -232,6 +235,7 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 		return err
 	}
 
+	var revokeError error
 	for _, schema := range schemas {
 		sanitizedSchema := pgx.Identifier{schema}.Sanitize()
 
@@ -239,18 +243,21 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 		l.Debug("revoking table grants", zap.String("query", revokeTablesQuery))
 		if _, err := c.db.Exec(ctx, revokeTablesQuery); err != nil {
 			l.Warn("error revoking table grants", zap.String("schema", schema), zap.Error(err))
+			revokeError = errors.Join(revokeError, err)
 		}
 
 		revokeSequencesQuery := fmt.Sprintf("REVOKE ALL ON ALL SEQUENCES IN SCHEMA %s FROM %s", sanitizedSchema, sanitizedRoleName)
 		l.Debug("revoking sequence grants", zap.String("query", revokeSequencesQuery))
 		if _, err := c.db.Exec(ctx, revokeSequencesQuery); err != nil {
 			l.Warn("error revoking sequence grants", zap.String("schema", schema), zap.Error(err))
+			revokeError = errors.Join(revokeError, err)
 		}
 
 		revokeFunctionsQuery := fmt.Sprintf("REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %s FROM %s", sanitizedSchema, sanitizedRoleName)
 		l.Debug("revoking function grants", zap.String("query", revokeFunctionsQuery))
 		if _, err := c.db.Exec(ctx, revokeFunctionsQuery); err != nil {
 			l.Warn("error revoking function grants", zap.String("schema", schema), zap.Error(err))
+			revokeError = errors.Join(revokeError, err)
 		}
 
 		typesQuery := `
@@ -263,6 +270,7 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 		typeRows, err := c.db.Query(ctx, typesQuery, schema)
 		if err != nil {
 			l.Warn("error querying types", zap.String("schema", schema), zap.Error(err))
+			revokeError = errors.Join(revokeError, err)
 		} else {
 			defer typeRows.Close()
 
@@ -270,6 +278,7 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 				var typeName string
 				if err := typeRows.Scan(&typeName); err != nil {
 					l.Warn("error scanning type name", zap.String("schema", schema), zap.Error(err))
+					revokeError = errors.Join(revokeError, err)
 					continue
 				}
 
@@ -278,6 +287,7 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 				l.Debug("revoking type grants", zap.String("query", revokeTypeQuery))
 				if _, err := c.db.Exec(ctx, revokeTypeQuery); err != nil {
 					l.Warn("error revoking type grants", zap.String("schema", schema), zap.String("type", typeName), zap.Error(err))
+					revokeError = errors.Join(revokeError, err)
 				}
 			}
 		}
@@ -286,6 +296,7 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 		l.Debug("revoking schema grants", zap.String("query", revokeSchemaQuery))
 		if _, err := c.db.Exec(ctx, revokeSchemaQuery); err != nil {
 			l.Warn("error revoking schema grants", zap.String("schema", schema), zap.Error(err))
+			revokeError = errors.Join(revokeError, err)
 		}
 	}
 
@@ -293,6 +304,11 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 	l.Debug("revoking database grants", zap.String("query", revokeDbQuery))
 	if _, err := c.db.Exec(ctx, revokeDbQuery); err != nil {
 		l.Warn("error revoking database grants", zap.Error(err))
+		revokeError = errors.Join(revokeError, err)
+	}
+
+	if revokeError != nil {
+		return errors.Join(errRevokeGrantsFromRole, revokeError)
 	}
 
 	return nil
@@ -334,6 +350,7 @@ func (c *Client) RemoveRoleFromAllRoles(ctx context.Context, roleName string) er
 		return err
 	}
 
+	var revokeError error
 	// Remove the role from each parent role
 	for _, parentRole := range parentRoles {
 		sanitizedParentRole := pgx.Identifier{parentRole}.Sanitize()
@@ -342,8 +359,12 @@ func (c *Client) RemoveRoleFromAllRoles(ctx context.Context, roleName string) er
 		l.Debug("removing role from parent role", zap.String("query", revokeQuery))
 		if _, err := c.db.Exec(ctx, revokeQuery); err != nil {
 			l.Error("error removing role from parent role", zap.String("parent_role", parentRole), zap.Error(err))
-			return err
+			revokeError = errors.Join(revokeError, fmt.Errorf("error removing role from %s role: %w", parentRole, err))
 		}
+	}
+
+	if revokeError != nil {
+		return errors.Join(errRevokeParentRolesFromRole, revokeError)
 	}
 
 	return nil
@@ -368,15 +389,21 @@ func (c *Client) SafeDeleteRole(ctx context.Context, roleName string) error {
 	}
 
 	l.Debug("revoking all grants from role", zap.String("role", roleName))
-	if err := c.RevokeAllGrantsFromRole(ctx, roleName); err != nil {
-		l.Error("error revoking grants from role", zap.Error(err))
-		return err
+	grantsRevokeError := c.RevokeAllGrantsFromRole(ctx, roleName)
+	if grantsRevokeError != nil {
+		l.Error("error revoking grants from role", zap.Error(grantsRevokeError))
+		if !errors.Is(grantsRevokeError, errRevokeGrantsFromRole) {
+			return fmt.Errorf("error revoking existing grants from role: %w", err)
+		}
 	}
 
 	l.Debug("removing role from all parent roles", zap.String("role", roleName))
-	if err := c.RemoveRoleFromAllRoles(ctx, roleName); err != nil {
-		l.Error("error removing role from parent roles", zap.Error(err))
-		return err
+	roleRevokeError := c.RemoveRoleFromAllRoles(ctx, roleName)
+	if roleRevokeError != nil {
+		l.Error("error removing role from parent roles", zap.Error(roleRevokeError))
+		if !errors.Is(roleRevokeError, errRevokeParentRolesFromRole) {
+			return fmt.Errorf("error removing role from parent roles: %w", roleRevokeError)
+		}
 	}
 
 	sanitizedRoleName := pgx.Identifier{roleName}.Sanitize()
@@ -385,7 +412,8 @@ func (c *Client) SafeDeleteRole(ctx context.Context, roleName string) error {
 	_, err = c.db.Exec(ctx, query)
 	if err != nil {
 		l.Error("error dropping role", zap.Error(err))
-		return err
+		finalError := errors.Join(err, roleRevokeError, grantsRevokeError)
+		return fmt.Errorf("error dropping role(%s): %w", roleName, finalError)
 	}
 
 	l.Info("successfully deleted role", zap.String("role", roleName))
