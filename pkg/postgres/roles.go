@@ -393,7 +393,7 @@ func (c *Client) SafeDeleteRole(ctx context.Context, roleName string) error {
 	if grantsRevokeError != nil {
 		l.Error("error revoking grants from role", zap.Error(grantsRevokeError))
 		if !errors.Is(grantsRevokeError, errRevokeGrantsFromRole) {
-			return fmt.Errorf("error revoking existing grants from role: %w", err)
+			return fmt.Errorf("error revoking existing grants from role: %w", grantsRevokeError)
 		}
 	}
 
