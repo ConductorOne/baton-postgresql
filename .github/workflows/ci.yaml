@@ -111,7 +111,7 @@ jobs:
         run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.grants[]?; any(.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) or any(.grant.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login))'
 
       - name: Delete user
-        run: ./baton-postgresql --delete-resource "${{ env.NEW_USER_ID }}" --resource-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
+        run: ./baton-postgresql --delete-resource "${{ env.NEW_USER_ID }}" --delete-resource-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
 
       - name: Check user was deleted
         run: ./baton-postgresql && baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?;.["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) | not'
