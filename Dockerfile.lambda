@@ -1,3 +1,0 @@
-FROM public.ecr.aws/lambda/provided:al2023
-ENTRYPOINT ["/baton-postgresql", "lambda"]
-COPY baton-postgresql /
