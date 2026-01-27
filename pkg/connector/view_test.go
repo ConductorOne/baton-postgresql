@@ -21,7 +21,7 @@ func TestGrantRevokeView(t *testing.T) {
 	c1z, err := manager.LoadC1Z(ctx)
 	require.NoError(t, err)
 	defer func(c1z *dotc1z.C1File) {
-		err := c1z.Close()
+		err := c1z.Close(ctx)
 		require.NoError(t, err)
 	}(c1z)
 

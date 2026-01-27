@@ -22,7 +22,7 @@ func TestGrantRevokeProcedure(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, err)
 	defer func(c1z *dotc1z.C1File) {
-		err := c1z.Close()
+		err := c1z.Close(ctx)
 		require.NoError(t, err)
 	}(c1z)
 
