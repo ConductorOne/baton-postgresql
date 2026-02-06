@@ -1,39 +1,42 @@
 name: ci
-on: pull_request
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
 jobs:
   go-lint:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
-      - name: Checkout code
-        uses: actions/checkout@v4
+          go-version-file: 'go.mod'
       - name: Run linters
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=10m
   go-test:
     strategy:
       matrix:
-        go-version: [1.23.x]
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
-      - name: Install Go
-        if: success()
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
       - name: go tests
         run: go test -v -covermode=count -json ./... > test.json
       - name: annotate go tests
         if: always()
-        uses: guyarb/golang-test-annotations@v0.5.1
+        uses: guyarb/golang-test-annotations@v0.6.0
         with:
           test-results: test.json
   test:
@@ -54,18 +57,14 @@ jobs:
       CONNECTOR_PRINCIPAL_TYPE: "role"
       CONNECTOR_NEW_USER: "testuser"
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
-      - name: Checkout code
-        uses: actions/checkout@v4
+          go-version-file: 'go.mod'
       - name: Install postgres client
         run: sudo apt install postgresql-client
-      # - name: Import sql into postgres
-      #   env:
-      #     PGPASSWORD: secretpassword
-      #   run: psql -h localhost --user postgres -f test/ci.sql
       - name: Install baton
         run: ./scripts/get-baton.sh && mv baton /usr/local/bin
       - name: Build baton-postgresql
@@ -115,7 +114,3 @@ jobs:
 
       - name: Check user was deleted
         run: ./baton-postgresql && baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?;.["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) | not'
-
-      # TODO: get correct role id using baton CLI
-      # - name: Rotate credentials for user
-      #   run: ./baton-postgresql --rotate-credentials 'role:16384' --rotate-credentials-type 'role'

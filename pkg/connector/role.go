@@ -287,7 +287,7 @@ func (r *roleSyncer) RotateCapabilityDetails(ctx context.Context) (*v2.Credentia
 func (r *roleSyncer) Rotate(
 	ctx context.Context,
 	resourceId *v2.ResourceId,
-	credentialOptions *v2.CredentialOptions,
+	credentialOptions *v2.LocalCredentialOptions,
 ) (
 	[]*v2.PlaintextData,
 	annotations.Annotations,
@@ -307,7 +307,7 @@ func (r *roleSyncer) Rotate(
 		return nil, nil, err
 	}
 
-	plainTextPassword, err := crypto.GeneratePassword(credentialOptions)
+	plainTextPassword, err := crypto.GeneratePassword(ctx, credentialOptions)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -334,7 +334,7 @@ func (r *roleSyncer) CreateAccountCapabilityDetails(ctx context.Context) (*v2.Cr
 func (r *roleSyncer) CreateAccount(
 	ctx context.Context,
 	accountInfo *v2.AccountInfo,
-	credentialOptions *v2.CredentialOptions,
+	credentialOptions *v2.LocalCredentialOptions,
 ) (
 	connectorbuilder.CreateAccountResponse,
 	[]*v2.PlaintextData,
@@ -355,7 +355,7 @@ func (r *roleSyncer) CreateAccount(
 		return car, []*v2.PlaintextData{}, nil, nil
 	}
 
-	plainTextPassword, err := crypto.GeneratePassword(credentialOptions)
+	plainTextPassword, err := crypto.GeneratePassword(ctx, credentialOptions)
 	if err != nil {
 		return nil, nil, nil, err
 	}

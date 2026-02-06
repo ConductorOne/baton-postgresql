@@ -18,4 +18,4 @@ var relationships = []field.SchemaFieldRelationship{}
 //go:generate go run ./gen
 var Config = field.NewConfiguration([]field.SchemaField{
 	dsn, schemas, includeColumns, includeLargeObjects, syncAllDatabases, skipBuiltInFunctions,
-}, relationships...)
+}, field.WithConstraints(relationships...))
