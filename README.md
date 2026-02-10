@@ -2,7 +2,7 @@
 
 #
 
-`baton-postgresql` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-postgresql.svg)](https://pkg.go.dev/github.com/conductorone/baton-postgresql) ![main ci](https://github.com/conductorone/baton-postgresql/actions/workflows/main.yaml/badge.svg)
+`baton-postgresql` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-postgresql.svg)](https://pkg.go.dev/github.com/conductorone/baton-postgresql) ![ci](https://github.com/conductorone/baton-postgresql/actions/workflows/ci.yaml/badge.svg)
 
 `baton-postgresql` is a connector for PostgreSQL built using the [Baton SDK](https://github.com/conductorone/baton-sdk).
 It connects to a PostgreSQL database and syncs data about which roles have access to which resources within the
