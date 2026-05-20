@@ -288,6 +288,10 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 					revokeError = errors.Join(revokeError, err)
 				}
 			}
+			if err := typeRows.Err(); err != nil {
+				l.Warn("error iterating types", zap.String("schema", schema), zap.Error(err))
+				revokeError = errors.Join(revokeError, err)
+			}
 			typeRows.Close()
 		}
 
