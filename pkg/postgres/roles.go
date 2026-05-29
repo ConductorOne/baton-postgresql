@@ -272,8 +272,6 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 			l.Warn("error querying types", zap.String("schema", schema), zap.Error(err))
 			revokeError = errors.Join(revokeError, err)
 		} else {
-			defer typeRows.Close()
-
 			for typeRows.Next() {
 				var typeName string
 				if err := typeRows.Scan(&typeName); err != nil {
@@ -290,6 +288,11 @@ func (c *Client) RevokeAllGrantsFromRole(ctx context.Context, roleName string) e
 					revokeError = errors.Join(revokeError, err)
 				}
 			}
+			if err := typeRows.Err(); err != nil {
+				l.Warn("error iterating types", zap.String("schema", schema), zap.Error(err))
+				revokeError = errors.Join(revokeError, err)
+			}
+			typeRows.Close()
 		}
 
 		revokeSchemaQuery := fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s", sanitizedSchema, sanitizedRoleName)
