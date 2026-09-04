@@ -37,7 +37,7 @@ baton resources
 ## docker
 
 ```
-docker run --rm -v $(pwd):/out -e BATON_DSN=postgres://username:password@localhost:5432/database_name ghcr.io/conductorone/baton-postgresql:latest -f "/out/sync.c1z"
+docker run --rm -v $(pwd):/out -e BATON_DSN=postgres://username:password@localhost:5432/database_name public.ecr.aws/conductorone/baton-postgresql:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
