@@ -52,6 +52,21 @@ func TestZeroValueConnectorBuildsWithoutDatabase(t *testing.T) {
 	resourceTypes, err := c.ListResourceTypes(ctx, &connectorV2.ResourceTypesServiceListResourceTypesRequest{})
 	require.NoError(t, err)
 	require.NotEmpty(t, resourceTypes.List)
+
+	metadata, err := c.GetMetadata(ctx, &connectorV2.ConnectorServiceGetMetadataRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, metadata.GetMetadata().GetCapabilities().GetResourceTypeCapabilities())
+
+	// The CLI prefers this optional getter over GetMetadata.
+	getter, ok := c.(interface {
+		GetCapabilities(context.Context) (*connectorV2.ConnectorCapabilities, error)
+	})
+	require.True(t, ok)
+	capabilities, err := getter.GetCapabilities(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, capabilities.GetResourceTypeCapabilities())
+	require.NotNil(t, capabilities.GetCredentialDetails().GetCapabilityAccountProvisioning())
+	require.NotNil(t, capabilities.GetCredentialDetails().GetCapabilityCredentialRotation())
 }
 
 func newTestConnector(t *testing.T) (context.Context, sync.Syncer, string, *inMemoryConnectorClient) {
