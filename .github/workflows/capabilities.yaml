@@ -8,14 +8,6 @@ on:
 jobs:
   calculate-capabilities:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_PASSWORD: secretpassword
-
     steps:
       - name: Mint baton-ci app token
         id: ci-token
@@ -40,8 +32,6 @@ jobs:
         run: go build -o connector ./cmd/baton-postgresql
 
       - name: Run and save output
-        env:
-          BATON_DSN: 'postgres://postgres:secretpassword@localhost:5432/postgres'
         run: ./connector capabilities > baton_capabilities.json
 
       - name: Commit changes

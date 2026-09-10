@@ -5,55 +5,53 @@ run:
 linters:
   default: none
   enable:
-    - asasalint # Check for pass []any as any in variadic func(...any)
-    - asciicheck # Simple linter to check that your code does not contain non-ASCII identifiers
-    - bidichk # Checks for dangerous unicode character sequences
-    - bodyclose # checks whether HTTP response body is closed successfully
-    - durationcheck # check for two durations multiplied together
-    - errcheck # Errcheck is a program for checking for unchecked errors in go programs. These unchecked errors can be critical bugs in some cases
-    - errorlint # errorlint is a linter for that can be used to find code that will cause problems with the error wrapping scheme introduced in Go 1.13.
-    - exhaustive # check exhaustiveness of enum switch statements
-    - forbidigo # Forbids identifiers
-    - gochecknoinits # Checks that no init functions are present in Go code
-    - goconst # Finds repeated strings that could be replaced by a constant
-    - gocritic # Provides diagnostics that check for bugs, performance and style issues.
-    - godot # Check if comments end in a period
-    - gomoddirectives # Manage the use of 'replace', 'retract', and 'excludes' directives in go.mod.
-    - goprintffuncname # Checks that printf-like functions are named with f at the end
-    - gosec # Inspects source code for security problems
-    - govet # Vet examines Go source code and reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
-    - ineffassign # Detects when assignments to existing variables are not used
-    - nakedret # Finds naked returns in functions greater than a specified function length
-    - nilerr # Finds the code that returns nil even if it checks that the error is not nil.
-    - noctx # noctx finds sending http request without context.Context
-    - nolintlint # Reports ill-formed or insufficient nolint directives
-    - nonamedreturns # Reports all named returns
-    - nosprintfhostport # Checks for misuse of Sprintf to construct a host with port in a URL.
-    - predeclared # find code that shadows one of Go's predeclared identifiers
-    - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
-    - staticcheck # Staticcheck is a go vet on steroids, applying a ton of static analysis checks (gosimple and stylecheck are folded in since golangci-lint v2)
-    - tparallel # tparallel detects inappropriate usage of t.Parallel() method in your Go test codes
-    - unconvert # Remove unnecessary type conversions
-    - unused # Checks Go code for unused constants, variables, functions and types
-    - usestdlibvars # detect the possibility to use variables/constants from the Go standard library
-    - whitespace # Tool for detection of leading and trailing whitespace
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - godot
+    - gomoddirectives
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - predeclared
+    - revive
+    - staticcheck
+    - tparallel
+    - unconvert
+    - unused
+    - usestdlibvars
+    - whitespace
   settings:
     exhaustive:
       default-signifies-exhaustive: true
     gocritic:
       enabled-checks:
         - ruleguard
-      # The list of supported checkers can be find in https://go-critic.github.io/overview.
       settings:
         ruleguard:
           rules: ${base-path}/tools/rules.go
         underef:
-          # Whether to skip (*x).method() calls where x is a pointer receiver.
           skipRecvDeref: false
     govet:
       disable:
-        - fieldalignment # too strict
-        - shadow # complains too much about shadowing errors. All research points to this being fine.
+        - fieldalignment
+        - shadow
       enable-all: true
     nakedret:
       max-func-lines: 0
@@ -73,8 +71,6 @@ linters:
         - name: line-length-limit
           arguments:
             - 200
-        # These are functions that we use without checking the errors often. Most of these can't return an error even
-        # though they implement an interface that can.
         - name: unhandled-error
           arguments:
             - fmt.Printf
@@ -103,7 +99,6 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      # Don't require TODO comments to end in a period
       - linters:
           - godot
         source: (TODO)
@@ -123,6 +118,8 @@ linters:
 issues:
   max-same-issues: 50
 formatters:
+  enable:
+    - goimports
   exclusions:
     generated: lax
     paths:
