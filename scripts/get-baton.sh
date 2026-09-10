@@ -6,6 +6,8 @@ OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 if [ "${ARCH}" = "x86_64" ]; then
   ARCH="amd64"
+elif [ "${ARCH}" = "aarch64" ]; then
+  ARCH="arm64"
 fi
 
 # Use the CLI shipped with the connector's SDK so it can read the same C1Z

@@ -106,6 +106,14 @@ jobs:
         run: |
           set -euo pipefail
           NEW_USER_ID=$(baton resources -t role -o json | jq -r --arg login "${{ env.CONNECTOR_NEW_USER }}" '.resources[].resource | select(any(.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login)) | .id.resource')
+          if [ -z "$NEW_USER_ID" ]; then
+            echo "No role found for login '$CONNECTOR_NEW_USER'" >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$NEW_USER_ID" | wc -l)" -ne 1 ]; then
+            echo "Expected exactly one role for login '$CONNECTOR_NEW_USER', but found multiple matches" >&2
+            exit 1
+          fi
           echo "NEW_USER_ID=$NEW_USER_ID" >> "$GITHUB_ENV"
 
       - name: Grant role to user
