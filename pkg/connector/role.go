@@ -11,7 +11,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	sdkResource "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
@@ -86,32 +85,33 @@ func (r *roleSyncer) makeResource(ctx context.Context, roleModel *postgres.RoleM
 	}, nil
 }
 
-func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (r *roleSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, opts sdkResource.SyncOpAttrs) ([]*v2.Resource, *sdkResource.SyncOpResults, error) {
 	var err error
+	pToken := &opts.PageToken
 
 	// if we ever support parentResourceID, be sure to set it in makeResource
 	if parentResourceID != nil {
-		return nil, "", nil, fmt.Errorf("unexpected parent resource ID on role: %s", parentResourceID)
+		return nil, nil, fmt.Errorf("unexpected parent resource ID on role: %s", parentResourceID)
 	}
 
 	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var ret []*v2.Resource
 	for _, o := range roles {
 		resource, err := r.makeResource(ctx, o)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 		ret = append(ret, resource)
 	}
 
-	return ret, nextPageToken, nil, nil
+	return ret, &sdkResource.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
-func (r *roleSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (r *roleSyncer) Entitlements(ctx context.Context, resource *v2.Resource, _ sdkResource.SyncOpAttrs) ([]*v2.Entitlement, *sdkResource.SyncOpResults, error) {
 	var ret []*v2.Entitlement
 
 	annos := annotations.Annotations(resource.Annotations)
@@ -119,7 +119,7 @@ func (r *roleSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pT
 	gt := &v2.GroupTrait{}
 	ok, err := annos.Pick(gt)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	if ok {
@@ -143,32 +143,33 @@ func (r *roleSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pT
 		})
 	}
 
-	return ret, "", nil, nil
+	return ret, &sdkResource.SyncOpResults{}, nil
 }
 
-func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, opts sdkResource.SyncOpAttrs) ([]*v2.Grant, *sdkResource.SyncOpResults, error) {
 	var ret []*v2.Grant
+	pToken := &opts.PageToken
 
 	annos := annotations.Annotations(resource.Annotations)
 	gt := &v2.GroupTrait{}
 	ok, err := annos.Pick(gt)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	// Roles only have entitlements if they are a group
 	if !ok {
-		return nil, "", nil, nil
+		return nil, &sdkResource.SyncOpResults{}, nil
 	}
 
 	roleID, err := parseObjectID(resource.Id.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	roleMembers, nextPageToken, err := r.client.ListRoleMembers(ctx, roleID, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var eID string
@@ -195,7 +196,7 @@ func (r *roleSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *
 		})
 	}
 
-	return ret, nextPageToken, nil, nil
+	return ret, &sdkResource.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
 func (r *roleSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {

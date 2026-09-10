@@ -20,8 +20,8 @@ type Postgresql struct {
 	skipBuiltInFunctions bool
 }
 
-func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+func (o *Postgresql) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newRoleSyncer(ctx, o.clientPool.Default(ctx)),
 		newSchemaSyncer(ctx, o.clientPool),
 		newTableSyncer(ctx, o.clientPool, o.includeColumns),

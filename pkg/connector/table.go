@@ -7,7 +7,7 @@ import (
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 var tableResourceType = &v2.ResourceType{
@@ -27,35 +27,36 @@ func (r *tableSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
 	return tableResourceType
 }
 
-func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	var err error
+	pToken := &opts.PageToken
 
-	if parentResourceID == nil || pToken == nil {
-		return nil, "", nil, nil
+	if parentResourceID == nil {
+		return nil, &resource.SyncOpResults{}, nil
 	}
 
 	if parentResourceID.ResourceType != schemaResourceType.Id {
-		return nil, "", nil, fmt.Errorf("invalid parent resource ID on table")
+		return nil, nil, fmt.Errorf("invalid parent resource ID on table")
 	}
 
 	database, parentID, err := parseWithDatabaseID(parentResourceID.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	client, _, err := r.clientPool.Get(ctx, database)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	schema, err := client.GetSchema(ctx, parentID)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	tables, nextPageToken, err := client.ListTables(ctx, schema.Name, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	var ret []*v2.Resource
@@ -77,13 +78,13 @@ func (r *tableSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId,
 		})
 	}
 
-	return ret, nextPageToken, nil, nil
+	return ret, &resource.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
-func (r *tableSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	dbId, _, err := parseWithDatabaseID(resource.Id.Resource)
+func (r *tableSyncer) Entitlements(ctx context.Context, res *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	dbId, _, err := parseWithDatabaseID(res.Id.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	dbModel, err := r.clientPool.
@@ -91,52 +92,53 @@ func (r *tableSyncer) Entitlements(ctx context.Context, resource *v2.Resource, p
 		GetDatabaseById(ctx, dbId)
 
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	ens, err := entitlementsForPrivs(
 		ctx,
-		resource,
+		res,
 		postgres.Select|postgres.Insert|postgres.Update|postgres.Delete|postgres.Truncate|postgres.Trigger|postgres.References,
 	)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	for _, en := range ens {
-		en.DisplayName = fmt.Sprintf("%s - %s", dbModel.Name, resource.DisplayName)
+		en.DisplayName = fmt.Sprintf("%s - %s", dbModel.Name, res.DisplayName)
 	}
 
-	return ens, "", nil, nil
+	return ens, &resource.SyncOpResults{}, nil
 }
 
-func (r *tableSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	db, rID, err := parseWithDatabaseID(resource.Id.Resource)
+func (r *tableSyncer) Grants(ctx context.Context, res *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+	pToken := &opts.PageToken
+	db, rID, err := parseWithDatabaseID(res.Id.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	client, _, err := r.clientPool.Get(ctx, db)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	table, err := client.GetTable(ctx, rID)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	roles, nextPageToken, err := client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, client, resource, roles, table)
+	ret, err := roleGrantsForPrivileges(ctx, client, res, roles, table)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	return ret, nextPageToken, nil, nil
+	return ret, &resource.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
 func (r *tableSyncer) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {

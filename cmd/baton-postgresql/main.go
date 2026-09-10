@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	cfg "github.com/conductorone/baton-postgresql/pkg/config"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
@@ -21,38 +19,20 @@ var version = "dev"
 func main() {
 	ctx := context.Background()
 
-	// The capabilities subcommand runs without a DSN: it builds the zero-value
-	// connector instead of validating the required flag.
-	_, cmd, err := configschema.DefineConfiguration(ctx, "baton-postgresql", getConnector, cfg.Config,
-		connectorrunner.WithDefaultCapabilitiesConnectorBuilder(&connector.Postgresql{}))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
-
-	cmd.Version = version
-
-	err = cmd.Execute()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
+	// The capabilities subcommand runs without a DSN, so it builds the
+	// zero-value connector instead of validating the required flag.
+	configschema.RunConnector(ctx, "baton-postgresql", version, cfg.Config, getConnector,
+		connectorrunner.WithDefaultCapabilitiesConnectorBuilderV2(&connector.Postgresql{}))
 }
 
-func getConnector(ctx context.Context, pgc *cfg.Postgresql) (types.ConnectorServer, error) {
+func getConnector(ctx context.Context, pgc *cfg.Postgresql, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
 	l := ctxzap.Extract(ctx)
 
 	cb, err := connector.New(ctx, pgc.Dsn, pgc.Schemas, pgc.IncludeColumns, pgc.IncludeLargeObjects, pgc.SyncAllDatabases, pgc.SkipBuiltInFunctions)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
-		return nil, err
+		return nil, nil, err
 	}
 
-	newConnector, err := connectorbuilder.NewConnector(ctx, cb)
-	if err != nil {
-		l.Error("error creating connector", zap.Error(err))
-		return nil, err
-	}
-
-	return newConnector, nil
+	return cb, nil, nil
 }
