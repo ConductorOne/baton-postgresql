@@ -118,8 +118,6 @@ linters:
 issues:
   max-same-issues: 50
 formatters:
-  enable:
-    - goimports
   exclusions:
     generated: lax
     paths:
