@@ -13,17 +13,29 @@ import (
 
 type UserTraitOption func(ut *v2.UserTrait) error
 
+// WithStatus sets the user's status.
+//
+// Deprecated: status has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level status when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceStatus instead.
 func WithStatus(status v2.UserTrait_Status_Status) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.Status = &v2.UserTrait_Status{Status: status}
+		ut.SetStatus(v2.UserTrait_Status_builder{Status: status}.Build())
 
 		return nil
 	}
 }
 
+// WithDetailedStatus sets the user's status along with details.
+//
+// Deprecated: status has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level status when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceStatus instead.
 func WithDetailedStatus(status v2.UserTrait_Status_Status, details string) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.Status = &v2.UserTrait_Status{Status: status, Details: details}
+		ut.SetStatus(v2.UserTrait_Status_builder{Status: status, Details: details}.Build())
 
 		return nil
 	}
@@ -35,12 +47,12 @@ func WithEmail(email string, primary bool) UserTraitOption {
 			return nil
 		}
 
-		traitEmail := &v2.UserTrait_Email{
+		traitEmail := v2.UserTrait_Email_builder{
 			Address:   email,
 			IsPrimary: primary,
-		}
+		}.Build()
 
-		ut.Emails = append(ut.Emails, traitEmail)
+		ut.SetEmails(append(ut.GetEmails(), traitEmail))
 
 		return nil
 	}
@@ -52,27 +64,39 @@ func WithUserLogin(login string, aliases ...string) UserTraitOption {
 			// If login is empty do nothing
 			return nil
 		}
-		ut.Login = login
-		ut.LoginAliases = aliases
+		ut.SetLogin(login)
+		ut.SetLoginAliases(aliases)
 		return nil
 	}
 }
 
 func WithEmployeeID(employeeIDs ...string) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.EmployeeIds = employeeIDs
+		ut.SetEmployeeIds(employeeIDs)
 		return nil
 	}
 }
 
+// WithUserIcon sets the user's icon.
+//
+// Deprecated: icon has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level icon when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceIcon instead.
 func WithUserIcon(assetRef *v2.AssetRef) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.Icon = assetRef
+		ut.SetIcon(assetRef)
 
 		return nil
 	}
 }
 
+// WithUserProfile sets the user's profile.
+//
+// Deprecated: profile has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level profile when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceProfile instead.
 func WithUserProfile(profile map[string]interface{}) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		p, err := structpb.NewStruct(profile)
@@ -80,7 +104,7 @@ func WithUserProfile(profile map[string]interface{}) UserTraitOption {
 			return err
 		}
 
-		ut.Profile = p
+		ut.SetProfile(p)
 
 		return nil
 	}
@@ -88,42 +112,48 @@ func WithUserProfile(profile map[string]interface{}) UserTraitOption {
 
 func WithAccountType(accountType v2.UserTrait_AccountType) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.AccountType = accountType
+		ut.SetAccountType(accountType)
 		return nil
 	}
 }
 
+// WithCreatedAt sets the user's creation time.
+//
+// Deprecated: created_at has moved from UserTrait to an attribute on
+// Resource. This option still works — it also populates the resource-level
+// created_at when used with WithUserTrait or NewUserResource — but new code
+// should use WithResourceCreatedAt instead.
 func WithCreatedAt(createdAt time.Time) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.CreatedAt = timestamppb.New(createdAt)
+		ut.SetCreatedAt(timestamppb.New(createdAt))
 		return nil
 	}
 }
 
 func WithLastLogin(lastLogin time.Time) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.LastLogin = timestamppb.New(lastLogin)
+		ut.SetLastLogin(timestamppb.New(lastLogin))
 		return nil
 	}
 }
 
 func WithMFAStatus(mfaStatus *v2.UserTrait_MFAStatus) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.MfaStatus = mfaStatus
+		ut.SetMfaStatus(mfaStatus)
 		return nil
 	}
 }
 
 func WithSSOStatus(ssoStatus *v2.UserTrait_SSOStatus) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.SsoStatus = ssoStatus
+		ut.SetSsoStatus(ssoStatus)
 		return nil
 	}
 }
 
 func WithStructuredName(structuredName *v2.UserTrait_StructuredName) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		ut.StructuredName = structuredName
+		ut.SetStructuredName(structuredName)
 		return nil
 	}
 }
@@ -140,13 +170,14 @@ func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 	}
 
 	// If no status was set, default to be enabled.
-	if userTrait.Status == nil {
-		userTrait.Status = &v2.UserTrait_Status{Status: v2.UserTrait_Status_STATUS_ENABLED}
+	//nolint:staticcheck // intentionally writes the deprecated trait status for backwards compatibility
+	if !userTrait.HasStatus() {
+		userTrait.SetStatus(v2.UserTrait_Status_builder{Status: v2.UserTrait_Status_STATUS_ENABLED}.Build())
 	}
 
 	// If account type isn't specified, default to a human user.
-	if userTrait.AccountType == v2.UserTrait_ACCOUNT_TYPE_UNSPECIFIED {
-		userTrait.AccountType = v2.UserTrait_ACCOUNT_TYPE_HUMAN
+	if userTrait.GetAccountType() == v2.UserTrait_ACCOUNT_TYPE_UNSPECIFIED {
+		userTrait.SetAccountType(v2.UserTrait_ACCOUNT_TYPE_HUMAN)
 	}
 
 	return userTrait, nil
@@ -155,7 +186,7 @@ func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 // GetUserTrait attempts to return the UserTrait instance on a resource.
 func GetUserTrait(resource *v2.Resource) (*v2.UserTrait, error) {
 	ret := &v2.UserTrait{}
-	annos := annotations.Annotations(resource.Annotations)
+	annos := annotations.Annotations(resource.GetAnnotations())
 	ok, err := annos.Pick(ret)
 	if err != nil {
 		return nil, err

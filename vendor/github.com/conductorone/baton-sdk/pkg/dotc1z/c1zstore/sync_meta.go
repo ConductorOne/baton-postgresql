@@ -1,0 +1,130 @@
+package c1zstore
+
+import (
+	"context"
+	"time"
+
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+)
+
+// SyncMeta is the sync-run-metadata sub-store of Store. It covers
+// operations that read/write the sync_runs table without going through the
+// gRPC Reader/Writer surfaces.
+//
+// All methods are callable without an active sync.
+type SyncMeta interface {
+	// MarkSyncSupportsDiff sets the supports_diff flag on the given sync.
+	// Called by pkg/sync.parallelSyncer when data collection completes to
+	// signal that the sync run has SQL-layer grant metadata populated.
+	// The name is historical (the marker once gated diff-sync generation);
+	// today it gates `baton rollback-expansion`.
+	MarkSyncSupportsDiff(ctx context.Context, syncID string) error
+
+	// LatestFullSync returns the most-recently-finished SyncTypeFull sync
+	// run, or nil if none exists.
+	LatestFullSync(ctx context.Context) (*SyncRun, error)
+
+	// LatestFinishedSyncOfAnyType returns the most-recently-finished sync
+	// of any type, or nil if none exists. Used by tooling that wants to
+	// inspect whatever sync finished last regardless of type.
+	LatestFinishedSyncOfAnyType(ctx context.Context) (*SyncRun, error)
+
+	// Stats returns a map of table-name to row-count for the given sync.
+	// If syncID is empty, the latest finished sync of the given type is
+	// used (NotFound when none exists). An explicit syncID may name an
+	// in-progress sync; in that case the returned counts reflect whatever
+	// has been written so far.
+	// Mirrors the existing *C1File.Stats signature exactly.
+	// Use StatsV2 for new code.
+	Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error)
+
+	// StatsV2 returns structured stats for the given sync.
+	// If syncID is empty, the latest finished sync of the given type is
+	// used (NotFound when none exists). An explicit syncID may name an
+	// in-progress sync; in that case the returned counts reflect whatever
+	// has been written so far.
+	StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error)
+
+	// RecalculateStats recomputes the cached stats for the given sync from
+	// the underlying records and persists them, discarding any previously
+	// cached value. The store must be writable. Used by tooling (e.g. the
+	// `baton recalculate-stats` command) to refresh stale or missing stats.
+	RecalculateStats(ctx context.Context, syncID string) error
+}
+
+// IngestInvariantVerificationWriter is the additive sync-metadata capability
+// implemented by stores that can persist invariant provenance. It is separate
+// from SyncMeta so adding the marker does not break third-party SyncMeta
+// implementations at compile time.
+type IngestInvariantVerificationWriter interface {
+	MarkIngestInvariantsVerified(ctx context.Context, syncID string, verification IngestInvariantVerification) error
+	ClearIngestInvariantVerification(ctx context.Context, syncID string) error
+}
+
+// SyncRun is the exported shape of a sync run. The fields match the
+// sync_runs schema.
+//
+// Callers typically only read ID, Type, and the timestamps; the rest is
+// included for completeness and for use by tooling.
+type SyncRun struct {
+	ID           string
+	StartedAt    *time.Time
+	EndedAt      *time.Time
+	SyncToken    string
+	Type         connectorstore.SyncType
+	ParentSyncID string
+	SupportsDiff bool
+	Compacted    bool
+	Stats        *reader_v2.SyncStats
+	IngestInvariantVerification
+}
+
+// UsableAsReplaySource reports whether this sync's upstream validators can
+// describe its contents. Compaction is a keep-newer merge rather than a
+// connector snapshot, so compacted and non-full syncs must be treated as cold
+// cache inputs. This checks run metadata only; callers must separately require
+// a storage engine that implements source-cache replay and authoritatively
+// persists compaction provenance. SQLite currently does neither, so its
+// zero-value Compacted field is not evidence that an artifact was never
+// compacted.
+func (r SyncRun) UsableAsReplaySource() bool {
+	return r.Type == connectorstore.SyncTypeFull && !r.Compacted
+}
+
+// IngestInvariantVerification is persisted provenance for a successful
+// post-collection invariant pass. Generation identifies the verifier
+// contract, Coverage lists the invariant IDs that actually ran, and Mode
+// identifies the verdict policy used. Generation == "" means unverified.
+type IngestInvariantVerification struct {
+	Generation string
+	Coverage   []string
+	Mode       IngestInvariantVerificationMode
+}
+
+// IsVerified reports whether the provenance marker is complete and uses a
+// known verdict mode. It says the recorded pass completed; callers must still
+// compare Generation and required Coverage with their own contract.
+func (v IngestInvariantVerification) IsVerified() bool {
+	if v.Generation == "" || len(v.Coverage) == 0 {
+		return false
+	}
+	switch v.Mode {
+	case IngestInvariantVerificationModeConnector,
+		IngestInvariantVerificationModeConnectorFailFast,
+		IngestInvariantVerificationModeCompactionMerge,
+		IngestInvariantVerificationModeCompactionMergeFailFast:
+		return true
+	default:
+		return false
+	}
+}
+
+type IngestInvariantVerificationMode string
+
+const (
+	IngestInvariantVerificationModeConnector               IngestInvariantVerificationMode = "connector"
+	IngestInvariantVerificationModeConnectorFailFast       IngestInvariantVerificationMode = "connector_fail_fast"
+	IngestInvariantVerificationModeCompactionMerge         IngestInvariantVerificationMode = "compaction_merge"
+	IngestInvariantVerificationModeCompactionMergeFailFast IngestInvariantVerificationMode = "compaction_merge_fail_fast"
+)

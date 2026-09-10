@@ -20,9 +20,9 @@ import (
 	// return a copy of the default dialect, which is not what we want,
 	// and allocates a ton of memory.
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
-	_ "github.com/glebarez/go-sqlite"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	_ "modernc.org/sqlite"
 )
 
 type DBCache struct {
@@ -52,13 +52,13 @@ const (
 	failRollback                = "Failed to rollback transaction"
 	failInsert                  = "Failed to insert response data into cache table"
 	failScanResponse            = "Failed to scan rows for cached response"
-	cacheTTLThreshold           = 60
+	cacheTTLThreshold           = time.Duration(60) * time.Second
 	cacheTTLMultiplier   uint64 = 5
 )
 
 var errNilConnection = errors.New("database connection is nil")
 
-var defaultWaitDuration = cacheTTLThreshold * time.Second // Default Cleanup interval, 60 seconds
+var defaultWaitDuration = cacheTTLThreshold // Default Cleanup interval, 60 seconds
 
 const tableName = "http_cache"
 
@@ -67,10 +67,9 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	var (
 		err error
 		dc  = &DBCache{
-			waitDuration: defaultWaitDuration, // Default Cleanup interval, 60 seconds
-			stats:        true,
-			//nolint:gosec // disable G115
-			expirationTime: time.Duration(cfg.TTL) * time.Second,
+			waitDuration:   defaultWaitDuration, // Default Cleanup interval, 60 seconds
+			stats:          true,
+			expirationTime: cfg.TTL,
 		}
 	)
 	l := ctxzap.Extract(ctx)
@@ -111,8 +110,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	if cfg.TTL > cacheTTLThreshold {
-		//nolint:gosec // disable G115
-		dc.waitDuration = time.Duration(cfg.TTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
+		dc.waitDuration = cfg.TTL * time.Duration(cacheTTLMultiplier) // set as a fraction of the Cache TTL
 	}
 
 	go func(waitDuration, expirationTime time.Duration) {
@@ -155,7 +153,6 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	}
 
 	file := filepath.Join(cacheDir, "lcache.db")
-	d.location = file
 
 	l.Debug("Opening database", zap.String("location", file))
 	rawDB, err := sql.Open("sqlite", file)
@@ -164,6 +161,9 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	}
 	l.Debug("Opened database", zap.String("location", file))
 
+	// Commit all derived state together so a sql.Open failure can't leave the
+	// receiver half-initialised (location set, db nil).
+	d.location = file
 	d.db = goqu.New("sqlite3", rawDB)
 	d.rawDb = rawDB
 	return d, nil
@@ -190,12 +190,12 @@ func (d *DBCache) removeDB(ctx context.Context) error {
 }
 
 // Get returns cached response (if exists).
-func (d *DBCache) Get(req *http.Request) (*http.Response, error) {
+func (d *DBCache) Get(req *http.Request, opts ...CacheOption) (*http.Response, error) {
 	var (
-		isFound bool = false
+		isFound = false
 		resp    *http.Response
 	)
-	key, err := CreateCacheKey(req)
+	key, err := CreateCacheKey(req, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,8 +250,8 @@ func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Set stores and save response in the db.
-func (d *DBCache) Set(req *http.Request, value *http.Response) error {
-	key, err := CreateCacheKey(req)
+func (d *DBCache) Set(req *http.Request, value *http.Response, opts ...CacheOption) error {
+	key, err := CreateCacheKey(req, opts...)
 	if err != nil {
 		return err
 	}
@@ -429,8 +429,8 @@ func (d *DBCache) updateStats(ctx context.Context, field, key string) error {
 
 func (d *DBCache) getStats(ctx context.Context) (CacheStats, error) {
 	var (
-		hits   int64
-		misses int64
+		hits   uint64
+		misses uint64
 	)
 	if d.db == nil {
 		return CacheStats{}, errNilConnection
@@ -455,6 +455,9 @@ func (d *DBCache) getStats(ctx context.Context) (CacheStats, error) {
 			l.Warn(failScanResponse, zap.Error(err))
 			return CacheStats{}, err
 		}
+	}
+	if rows.Err() != nil {
+		return CacheStats{}, rows.Err()
 	}
 
 	return CacheStats{

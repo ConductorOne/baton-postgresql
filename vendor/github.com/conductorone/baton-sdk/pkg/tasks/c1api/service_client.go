@@ -19,6 +19,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 const (
@@ -29,6 +30,7 @@ type BatonServiceClient interface {
 	batonHelloClient
 
 	GetTask(ctx context.Context, req *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error)
+	GetTasks(ctx context.Context, req *v1.BatonServiceGetTasksRequest) (*v1.BatonServiceGetTasksResponse, error)
 	Heartbeat(ctx context.Context, req *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error)
 	FinishTask(ctx context.Context, req *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error)
 	Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error
@@ -84,78 +86,131 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceCli
 
 func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Hello")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	in.HostId = c.getHostID()
+	in.SetHostId(c.getHostID())
 
-	return client.Hello(ctx, in)
+	resp, err := client.Hello(ctx, in)
+	return resp, err
 }
 
 func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	in.HostId = c.getHostID()
+	in.SetHostId(c.getHostID())
 
-	return client.GetTask(ctx, in)
+	resp, err := client.GetTask(ctx, in)
+	return resp, err
+}
+
+func (c *c1ServiceClient) GetTasks(ctx context.Context, in *v1.BatonServiceGetTasksRequest) (*v1.BatonServiceGetTasksResponse, error) {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTasks")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	client, done, err := c.getClientConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
+	in.SetHostId(c.getHostID())
+
+	resp, err := client.GetTasks(ctx, in)
+	return resp, err
 }
 
 func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Heartbeat")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	in.HostId = c.getHostID()
+	in.SetHostId(c.getHostID())
 
-	return client.Heartbeat(ctx, in)
+	resp, err := client.Heartbeat(ctx, in)
+	return resp, err
 }
 
 func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.FinishTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	in.HostId = c.getHostID()
+	in.SetHostId(c.getHostID())
 
-	return client.FinishTask(ctx, in)
+	resp, err := client.FinishTask(ctx, in)
+	return resp, err
 }
 
 func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
+	const maxAttempts = 3
+	for i := range maxAttempts {
+		err = c.upload(ctx, task, r)
+		if err == nil {
+			return nil
+		}
+		l.Warn("failed to upload asset", zap.Error(err))
+		if i < maxAttempts-1 {
+			backoff := time.Second * time.Duration(i)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	return err
+}
+
+func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	l := ctxzap.Extract(ctx)
+
+	_, err = r.Seek(0, io.SeekStart)
+	if err != nil {
+		l.Error("failed to seek to start of upload asset", zap.Error(err))
+		return err
+	}
 
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
+		l.Error("failed to get client connection", zap.Error(err))
 		return err
 	}
 	defer done()
 
 	uc, err := client.UploadAsset(ctx)
 	if err != nil {
+		l.Error("UploadAsset returned error", zap.Error(err))
 		return err
 	}
 
@@ -173,14 +228,12 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
-	err = uc.Send(&v1.BatonServiceUploadAssetRequest{
-		Msg: &v1.BatonServiceUploadAssetRequest_Metadata{
-			Metadata: &v1.BatonServiceUploadAssetRequest_UploadMetadata{
-				HostId: c.getHostID(),
-				TaskId: task.Id,
-			},
-		},
-	})
+	err = uc.Send(v1.BatonServiceUploadAssetRequest_builder{
+		Metadata: v1.BatonServiceUploadAssetRequest_UploadMetadata_builder{
+			HostId: c.getHostID(),
+			TaskId: task.GetId(),
+		}.Build(),
+	}.Build())
 	if err != nil {
 		l.Error("failed to send upload metadata", zap.Error(err))
 		return err
@@ -206,26 +259,22 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 			return err
 		}
 
-		err = uc.Send(&v1.BatonServiceUploadAssetRequest{
-			Msg: &v1.BatonServiceUploadAssetRequest_Data{
-				Data: &v1.BatonServiceUploadAssetRequest_UploadData{
-					Data: chunk,
-				},
-			},
-		})
+		err = uc.Send(v1.BatonServiceUploadAssetRequest_builder{
+			Data: v1.BatonServiceUploadAssetRequest_UploadData_builder{
+				Data: chunk,
+			}.Build(),
+		}.Build())
 		if err != nil {
 			l.Error("failed to send upload chunk", zap.Error(err))
 			return err
 		}
 	}
 
-	err = uc.Send(&v1.BatonServiceUploadAssetRequest{
-		Msg: &v1.BatonServiceUploadAssetRequest_Eof{
-			Eof: &v1.BatonServiceUploadAssetRequest_UploadEOF{
-				Sha256Checksum: shaChecksum,
-			},
-		},
-	})
+	err = uc.Send(v1.BatonServiceUploadAssetRequest_builder{
+		Eof: v1.BatonServiceUploadAssetRequest_UploadEOF_builder{
+			Sha256Checksum: shaChecksum,
+		}.Build(),
+	}.Build())
 	if err != nil {
 		l.Error("failed to send upload metadata", zap.Error(err))
 		return err
@@ -237,7 +286,7 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
-	l.Info("uploaded asset", zap.String("task_id", task.Id), zap.Int64("size", rLen))
+	l.Info("uploaded asset", zap.String("task_id", task.GetId()), zap.Int64("size", rLen))
 	return nil
 }
 

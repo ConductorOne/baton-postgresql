@@ -7,9 +7,7 @@ import (
 	"github.com/conductorone/baton-postgresql/pkg/testutil"
 	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager/local"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/stretchr/testify/require"
@@ -43,7 +41,20 @@ type inMemoryConnectorClient struct {
 	connectorV2.ActionServiceClient
 }
 
-func newTestConnector(t *testing.T) (context.Context, sync.Syncer, manager.Manager, *inMemoryConnectorClient) {
+// The capabilities subcommand builds the zero-value connector, so this path
+// must never reach for a database.
+func TestZeroValueConnectorBuildsWithoutDatabase(t *testing.T) {
+	ctx := context.Background()
+
+	c, err := connectorbuilder.NewConnector(ctx, &Postgresql{})
+	require.NoError(t, err)
+
+	resourceTypes, err := c.ListResourceTypes(ctx, &connectorV2.ResourceTypesServiceListResourceTypesRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, resourceTypes.List)
+}
+
+func newTestConnector(t *testing.T) (context.Context, sync.Syncer, string, *inMemoryConnectorClient) {
 	ctx := context.Background()
 
 	container := testutil.SetupPostgresContainer(ctx, t)
@@ -151,28 +162,32 @@ func newTestConnector(t *testing.T) (context.Context, sync.Syncer, manager.Manag
 	)
 	require.NoError(t, err)
 
-	localManager, err := local.New(ctx, tempPath.Name())
-	require.NoError(t, err)
-
-	return ctx, syncer, localManager, client
+	return ctx, syncer, tempPath.Name(), client
 }
 
-func getByDisplayName(ctx context.Context, c1z *dotc1z.C1File, resourceType *connectorV2.ResourceType, name string) (*connectorV2.Resource, error) {
-	resources, err := c1z.ListResources(ctx, &connectorV2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: resourceType.Id,
-		PageSize:       100,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	for _, rs := range resources.List {
-		if rs.DisplayName == name {
-			return rs, nil
+func getByDisplayName(ctx context.Context, c1z c1zstore.Store, resourceType *connectorV2.ResourceType, name string) (*connectorV2.Resource, error) {
+	var pageToken string
+	for {
+		resources, err := c1z.ListResources(ctx, &connectorV2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: resourceType.Id,
+			PageSize:       100,
+			PageToken:      pageToken,
+		})
+		if err != nil {
+			return nil, err
 		}
-	}
 
-	return nil, nil
+		for _, rs := range resources.List {
+			if rs.DisplayName == name {
+				return rs, nil
+			}
+		}
+
+		if resources.NextPageToken == "" {
+			return nil, nil
+		}
+		pageToken = resources.NextPageToken
+	}
 }
 
 func TestConnectorFullSync(t *testing.T) {

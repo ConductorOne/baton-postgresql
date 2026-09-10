@@ -53,6 +53,7 @@ func (b *BearerAuth) GetClient(ctx context.Context, options ...Option) (*http.Cl
 
 type BasicAuth struct {
 	Username string
+
 	Password string
 }
 

@@ -10,37 +10,60 @@ import (
 
 type SecretTraitOption func(t *v2.SecretTrait) error
 
+// WithSecretCreatedAt sets the secret's creation time.
+//
+// Deprecated: created_at has moved from SecretTrait to an attribute on
+// Resource. This option still works — it also populates the resource-level
+// created_at when used with WithSecretTrait or NewSecretResource — but new
+// code should use WithResourceCreatedAt instead.
 func WithSecretCreatedAt(createdAt time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.CreatedAt = timestamppb.New(createdAt)
+		t.SetCreatedAt(timestamppb.New(createdAt))
 		return nil
 	}
 }
 
 func WithSecretLastUsedAt(lastUsed time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.LastUsedAt = timestamppb.New(lastUsed)
+		t.SetLastUsedAt(timestamppb.New(lastUsed))
 		return nil
 	}
 }
 
 func WithSecretExpiresAt(expiresAt time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.ExpiresAt = timestamppb.New(expiresAt)
+		t.SetExpiresAt(timestamppb.New(expiresAt))
 		return nil
 	}
 }
 
 func WithSecretCreatedByID(createdById *v2.ResourceId) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.CreatedById = createdById
+		t.SetCreatedById(createdById)
 		return nil
 	}
 }
 
 func WithSecretIdentityID(identityId *v2.ResourceId) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.IdentityId = identityId
+		t.SetIdentityId(identityId)
+		return nil
+	}
+}
+
+// WithSecretType sets the cryptographic class of the secret.
+func WithSecretType(credentialType v2.SecretTrait_CredentialType) SecretTraitOption {
+	return func(t *v2.SecretTrait) error {
+		t.SetCredentialType(credentialType)
+		return nil
+	}
+}
+
+// WithSecretDetail sets the platform-specific credential kind that refines
+// the credential type (e.g. "aws_access_key", "ssh_key", "x509").
+func WithSecretDetail(detail string) SecretTraitOption {
+	return func(t *v2.SecretTrait) error {
+		t.SetCredentialDetail(detail)
 		return nil
 	}
 }

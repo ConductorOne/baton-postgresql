@@ -76,15 +76,15 @@ from "pg_catalog"."pg_namespace"
 			if ii != 0 {
 				_, _ = sb.WriteString("OR ")
 			}
-			_, _ = sb.WriteString(fmt.Sprintf(`"nspname" = $%d `, len(args)+1))
+			_, _ = fmt.Fprintf(sb, `"nspname" = $%d `, len(args)+1)
 			args = append(args, s)
 		}
 	}
 
-	_, _ = sb.WriteString(fmt.Sprintf("LIMIT $%d ", len(args)+1))
+	_, _ = fmt.Fprintf(sb, "LIMIT $%d ", len(args)+1)
 	args = append(args, limit+1)
 	if offset > 0 {
-		_, _ = sb.WriteString(fmt.Sprintf("OFFSET $%d ", len(args)+1))
+		_, _ = fmt.Fprintf(sb, "OFFSET $%d ", len(args)+1)
 		args = append(args, offset)
 	}
 

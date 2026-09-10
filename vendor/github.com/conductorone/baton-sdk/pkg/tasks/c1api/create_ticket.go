@@ -12,6 +12,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type createTicketTaskHelpers interface {
@@ -26,8 +27,8 @@ type createTicketTaskHandler struct {
 
 func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "createTicketTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	t := c.task.GetCreateTicketTask()
@@ -37,11 +38,11 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := c.helpers.ConnectorClient()
-	resp, err := cc.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{
+	resp, err := cc.CreateTicket(ctx, v2.TicketsServiceCreateTicketRequest_builder{
 		Request:     t.GetTicketRequest(),
 		Schema:      t.GetTicketSchema(),
 		Annotations: t.GetAnnotations(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed creating ticket", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
@@ -50,7 +51,7 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	respAnnos.Merge(t.GetAnnotations()...)
 
-	resp.Annotations = respAnnos
+	resp.SetAnnotations(respAnnos)
 
 	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }

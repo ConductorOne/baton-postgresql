@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type createResourceHelpers interface {
@@ -27,9 +28,9 @@ type createResourceTaskHandler struct {
 
 func (g *createResourceTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "createResourceTaskHandler.HandleTask")
-	defer span.End()
-
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetCreateResource()
 	if t == nil || t.GetResource() == nil {
@@ -41,9 +42,9 @@ func (g *createResourceTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.CreateResource(ctx, &v2.CreateResourceRequest{
+	resp, err := cc.CreateResource(ctx, v2.CreateResourceRequest_builder{
 		Resource: t.GetResource(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed create resource task", zap.Error(err))
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

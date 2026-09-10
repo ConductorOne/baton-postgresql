@@ -12,6 +12,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type bulkCreateTicketTaskHelpers interface {
@@ -26,8 +27,8 @@ type bulkCreateTicketTaskHandler struct {
 
 func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "bulkCreateTicketTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	t := c.task.GetBulkCreateTickets()
@@ -38,17 +39,17 @@ func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 
 	ticketRequests := make([]*v2.TicketsServiceCreateTicketRequest, 0)
 	for _, createTicketTask := range t.GetTicketRequests() {
-		ticketRequests = append(ticketRequests, &v2.TicketsServiceCreateTicketRequest{
+		ticketRequests = append(ticketRequests, v2.TicketsServiceCreateTicketRequest_builder{
 			Request:     createTicketTask.GetTicketRequest(),
 			Schema:      createTicketTask.GetTicketSchema(),
 			Annotations: createTicketTask.GetAnnotations(),
-		})
+		}.Build())
 	}
 
 	cc := c.helpers.ConnectorClient()
-	resp, err := cc.BulkCreateTickets(ctx, &v2.TicketsServiceBulkCreateTicketsRequest{
+	resp, err := cc.BulkCreateTickets(ctx, v2.TicketsServiceBulkCreateTicketsRequest_builder{
 		TicketRequests: ticketRequests,
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed bulk creating tickets", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)

@@ -558,6 +558,21 @@ func (m *GrantsServiceListGrantsRequest) validate(all bool) error {
 
 	}
 
+	if m.GetActiveSyncId() != "" {
+
+		if l := len(m.GetActiveSyncId()); l < 1 || l > 1024 {
+			err := GrantsServiceListGrantsRequestValidationError{
+				field:  "ActiveSyncId",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return GrantsServiceListGrantsRequestMultiError(errors)
 	}
@@ -1554,6 +1569,8 @@ func (m *GrantSources_GrantSource) validate(all bool) error {
 	}
 
 	var errors []error
+
+	// no validation rules for IsDirect
 
 	if len(errors) > 0 {
 		return GrantSources_GrantSourceMultiError(errors)

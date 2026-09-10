@@ -97,11 +97,7 @@ func parseEntitlementID(id string) (string, string, string, bool, error) {
 		return "", "", "", false, fmt.Errorf("invalid entitlement ID: %s", id)
 	}
 
-	isGrant := false
-
-	if parts[len(parts)-1] == "grant" {
-		isGrant = true
-	}
+	isGrant := parts[len(parts)-1] == "grant"
 
 	if strings.HasPrefix(parts[2], "db") {
 		return parts[1], fmt.Sprintf("%s:%s", parts[2], parts[3]), parts[4], isGrant, nil

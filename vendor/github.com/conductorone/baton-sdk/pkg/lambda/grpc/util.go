@@ -1,10 +1,16 @@
 package grpc
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -73,6 +79,44 @@ func decodeTimeout(s string) (time.Duration, error) {
 	return d * time.Duration(t), nil
 }
 
+const maxTimeoutValue int64 = 100000000 - 1
+
+// div does integer division and round-up the result. Note that this is
+// equivalent to (d+r-1)/r but has less chance to overflow.
+func div(d, r time.Duration) int64 {
+	if d%r > 0 {
+		return int64(d/r + 1)
+	}
+	return int64(d / r)
+}
+
+// encodeTimeout encodes the duration to the format the grpc-timeout header
+// accepts. Ported from grpc-go's internal/grpcutil.EncodeDuration.
+//
+// https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md#requests
+func encodeTimeout(t time.Duration) string {
+	if t <= 0 {
+		return "0n"
+	}
+	if d := div(t, time.Nanosecond); d <= maxTimeoutValue {
+		return strconv.FormatInt(d, 10) + "n"
+	}
+	if d := div(t, time.Microsecond); d <= maxTimeoutValue {
+		return strconv.FormatInt(d, 10) + "u"
+	}
+	if d := div(t, time.Millisecond); d <= maxTimeoutValue {
+		return strconv.FormatInt(d, 10) + "m"
+	}
+	if d := div(t, time.Second); d <= maxTimeoutValue {
+		return strconv.FormatInt(d, 10) + "S"
+	}
+	if d := div(t, time.Minute); d <= maxTimeoutValue {
+		return strconv.FormatInt(d, 10) + "M"
+	}
+	// Note that maxTimeoutValue * time.Hour > MaxInt64.
+	return strconv.FormatInt(div(t, time.Hour), 10) + "H"
+}
+
 func parseMethod(method string) (string, string, error) {
 	if method != "" && method[0] == '/' {
 		method = method[1:]
@@ -127,13 +171,34 @@ func UnmarshalMetadata(s *structpb.Struct) metadata.MD {
 	return md
 }
 
+// isTransientNetworkError returns true for TCP-level errors that are
+// transient and should be classified as codes.Unavailable rather than
+// codes.Unknown so that callers (e.g. IsSyncPreservable) can treat
+// them as recoverable.
+func isTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "http2: client connection lost") ||
+		strings.Contains(msg, "i/o timeout") ||
+		// Timeout strings: mapped to Unavailable as fallback for serialized errors that lost net.Error.
+		strings.Contains(msg, "connection timed out") ||
+		strings.Contains(msg, "TLS handshake timeout") ||
+		strings.Contains(msg, "no such host") ||
+		(strings.Contains(msg, "unexpected EOF") && !strings.Contains(msg, "unexpected EOF on client connection"))
+}
+
 // ErrorResponse converts a given error to a status.Status and returns a *pbtransport.Response.
-// status.FromError(err) must unwrap a status.Status for this to work - all other errors are converted
-// to grpc codes.Unknown errors.
+// status.FromError(err) must unwrap a status.Status for this to work. Non-status errors are mapped
+// through Baton lambda's application error classification before falling back to codes.Unknown.
 func ErrorResponse(err error) *Response {
 	st, ok := status.FromError(err)
 	if !ok {
-		st = status.Newf(codes.Unknown, "unknown error: %s", err)
+		st = statusForApplicationError(err)
 	}
 	spb := st.Proto()
 	if spb == nil {
@@ -145,11 +210,49 @@ func ErrorResponse(err error) *Response {
 		panic(fmt.Errorf("server: unable to serialize status: %w", err))
 	}
 	return &Response{
-		msg: &pbtransport.Response{
+		msg: pbtransport.Response_builder{
 			Resp:     nil,
 			Status:   anyst,
 			Headers:  nil,
 			Trailers: nil,
-		},
+		}.Build(),
 	}
+}
+
+// statusForApplicationError mirrors the transient network handling in uhttp for
+// connector SDK clients that bypass the Baton HTTP wrapper.
+func statusForApplicationError(err error) *status.Status {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return status.Newf(codes.Canceled, "canceled: %s", err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Newf(codes.DeadlineExceeded, "deadline exceeded: %s", err)
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return status.Newf(codes.Unavailable, "unexpected EOF: %s", err)
+	case errors.Is(err, syscall.ECONNRESET):
+		return status.Newf(codes.Unavailable, "connection reset: %s", err)
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Timeout() {
+			return status.Newf(codes.DeadlineExceeded, "request timeout: %s", err)
+		}
+		if urlErr.Temporary() {
+			return status.Newf(codes.Unavailable, "temporary error: %s", err)
+		}
+	}
+
+	// Catches net.Error timeout types not wrapped in url.Error
+	// (e.g. tls.handshakeTimeoutError at the RoundTrip level).
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return status.Newf(codes.DeadlineExceeded, "network timeout: %s", err)
+	}
+
+	if isTransientNetworkError(err) {
+		return status.Newf(codes.Unavailable, "transient network error: %s", err)
+	}
+
+	return status.Newf(codes.Unknown, "unknown error: %s", err)
 }

@@ -63,12 +63,12 @@ func (r *TransportStream) Response() (*Response, error) {
 	}
 
 	return &Response{
-		msg: &pbtransport.Response{
+		msg: pbtransport.Response_builder{
 			Resp:     anyResp,
 			Status:   anyStatus,
 			Headers:  headers,
 			Trailers: trailers,
-		},
+		}.Build(),
 	}, nil
 }
 
@@ -85,6 +85,9 @@ func (r *TransportStream) SetHeader(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if r.headersSent.Load() {
+		return ErrIllegalHeaderWrite
+	}
 	r.headers = metadata.Join(r.headers, md)
 	return nil
 }
@@ -95,6 +98,15 @@ func (r *TransportStream) SendHeader(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	// Re-check inside the mutex: between the unlocked Load above and
+	// taking r.mtx, a concurrent caller may have already set
+	// headersSent and joined headers. Without this check, both
+	// callers reach the Store(true)/Join below and end up
+	// double-joining headers; the second caller would also fail to
+	// return ErrIllegalSendHeader, violating the once-only contract.
+	if r.headersSent.Load() {
+		return ErrIllegalSendHeader
+	}
 	r.headersSent.Store(true)
 	r.headers = metadata.Join(r.headers, md)
 	return nil
@@ -109,6 +121,9 @@ func (r *TransportStream) SetTrailer(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if r.headersSent.Load() {
+		return ErrIllegalHeaderWrite
+	}
 	r.trailers = metadata.Join(r.trailers, md)
 	return nil
 }
@@ -140,23 +155,36 @@ func NewTransportStream(method *grpc.MethodDesc) *TransportStream {
 func NewServer(unaryInterceptor grpc.UnaryServerInterceptor,
 ) *Server {
 	return &Server{
-		unaryInterceptor: unaryInterceptor,
-		services:         make(map[string]*serviceInfo),
+		unaryInterceptor:       unaryInterceptor,
+		services:               make(map[string]*serviceInfo),
+		activeServiceInstances: make(map[serviceImplementationKey]*serviceImplementationState),
 	}
 }
 
 type serviceInfo struct {
 	serviceImpl any
+	handlerType reflect.Type
 	methods     map[string]*grpc.MethodDesc
 	streams     map[string]*grpc.StreamDesc
 	mdata       any
 }
 
 type Server struct {
-	mu               sync.Mutex
-	unaryInterceptor grpc.UnaryServerInterceptor
+	mu                     sync.Mutex
+	unaryInterceptor       grpc.UnaryServerInterceptor
+	activeServiceInstances map[serviceImplementationKey]*serviceImplementationState
 
 	services map[string]*serviceInfo
+}
+
+type serviceImplementationKey struct {
+	typ reflect.Type
+	ptr uintptr
+}
+
+type serviceImplementationState struct {
+	active  int
+	drained chan struct{}
 }
 
 func MetadataForRequest(req *Request) metadata.MD {
@@ -198,7 +226,7 @@ func PeerForRequest(req *Request) *peer.Peer {
 
 func TimeoutForRequest(req *Request) (time.Duration, bool, error) {
 	v := req.Headers().Get("grpc-timeout")
-	if len(v) > 1 {
+	if len(v) > 0 {
 		to, err := decodeTimeout(v[0])
 		if err != nil {
 			return 0, false, status.Errorf(codes.Internal, "malformed grpc-timeout: %v", err)
@@ -208,19 +236,38 @@ func TimeoutForRequest(req *Request) (time.Duration, bool, error) {
 	return 0, false, nil
 }
 
+// Handler serves one transport request. The response echoes the request's
+// wire version so v2 invokers get lossless frames and legacy invokers get
+// protojson (see Response.MarshalJSON).
 func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
+	resp, err := s.handle(ctx, req)
+	if resp != nil {
+		resp.wireV2 = req.wireV2
+	}
+	return resp, err
+}
+
+func (s *Server) handle(ctx context.Context, req *Request) (*Response, error) {
 	serviceName, methodName, err := parseMethod(req.Method())
 	if err != nil {
 		return ErrorResponse(err), nil
 	}
+
+	s.mu.Lock()
 	service, ok := s.services[serviceName]
 	if !ok {
+		s.mu.Unlock()
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown service %v", serviceName)), nil
 	}
 	method, ok := service.methods[methodName]
 	if !ok {
+		s.mu.Unlock()
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, service)), nil
 	}
+	serviceImpl := service.serviceImpl
+	releaseServiceImpl := s.acquireServiceImplementationLocked(serviceImpl)
+	s.mu.Unlock()
+	defer releaseServiceImpl()
 
 	md := MetadataForRequest(req)
 	p := PeerForRequest(req)
@@ -248,15 +295,13 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 		return nil
 	}
 
-	resp, err := method.Handler(service.serviceImpl, ctx, df, s.unaryInterceptor)
+	resp, err := method.Handler(serviceImpl, ctx, df, s.unaryInterceptor)
 	if err != nil {
 		appStatus, ok := status.FromError(err)
 		if ok {
 			err = appStatus.Err()
 		} else {
-			// Convert non-status application error to a status error with code
-			// Unknown, but handle context errors specifically.
-			appStatus = status.FromContextError(err)
+			appStatus = statusForApplicationError(err)
 			err = appStatus.Err()
 		}
 		return ErrorResponse(err), nil
@@ -294,6 +339,7 @@ func (s *Server) register(sd *grpc.ServiceDesc, ss any) {
 	}
 	info := &serviceInfo{
 		serviceImpl: ss,
+		handlerType: reflect.TypeOf(sd.HandlerType).Elem(),
 		methods:     make(map[string]*grpc.MethodDesc),
 		streams:     make(map[string]*grpc.StreamDesc),
 		mdata:       sd.Metadata,
@@ -307,4 +353,109 @@ func (s *Server) register(sd *grpc.ServiceDesc, ss any) {
 		info.streams[d.StreamName] = d
 	}
 	s.services[sd.ServiceName] = info
+}
+
+// ReplaceServiceImplementation swaps all services currently registered with oldImpl to
+// newImpl and returns a channel that closes when requests using oldImpl have drained.
+// It is intended for lambda connector generation reloads where the service
+// descriptors stay fixed but connector-owned state must be discarded wholesale.
+func (s *Server) ReplaceServiceImplementation(oldImpl any, newImpl any) (int, <-chan struct{}, error) {
+	if newImpl == nil {
+		return 0, closedChannel(), fmt.Errorf("grpc: replacement service implementation is nil")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var replacements []*serviceInfo
+	for serviceName, service := range s.services {
+		if !sameServiceImplementation(service.serviceImpl, oldImpl) {
+			continue
+		}
+		if service.handlerType != nil && !reflect.TypeOf(newImpl).Implements(service.handlerType) {
+			return 0, closedChannel(), fmt.Errorf("grpc: replacement service implementation of type %v does not satisfy %v for service %q", reflect.TypeOf(newImpl), service.handlerType, serviceName)
+		}
+		replacements = append(replacements, service)
+	}
+
+	for _, service := range replacements {
+		service.serviceImpl = newImpl
+	}
+
+	drained := closedChannel()
+	if key, ok := serviceImplementationKeyFor(oldImpl); ok {
+		if state, ok := s.activeServiceInstances[key]; ok {
+			drained = state.drained
+		}
+	}
+
+	return len(replacements), drained, nil
+}
+
+func sameServiceImplementation(a any, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+	if av.Kind() == reflect.Pointer && bv.Kind() == reflect.Pointer {
+		return av.Pointer() == bv.Pointer()
+	}
+	if !av.Type().Comparable() || !bv.Type().Comparable() {
+		return false
+	}
+
+	return a == b
+}
+
+func (s *Server) acquireServiceImplementationLocked(impl any) func() {
+	key, ok := serviceImplementationKeyFor(impl)
+	if !ok {
+		return func() {}
+	}
+
+	state, ok := s.activeServiceInstances[key]
+	if !ok {
+		state = &serviceImplementationState{drained: make(chan struct{})}
+		s.activeServiceInstances[key] = state
+	}
+	state.active++
+
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		state := s.activeServiceInstances[key]
+		if state == nil {
+			return
+		}
+		state.active--
+		if state.active == 0 {
+			close(state.drained)
+			delete(s.activeServiceInstances, key)
+		}
+	}
+}
+
+func serviceImplementationKeyFor(impl any) (serviceImplementationKey, bool) {
+	if impl == nil {
+		return serviceImplementationKey{}, false
+	}
+
+	v := reflect.ValueOf(impl)
+	if v.Kind() != reflect.Pointer {
+		return serviceImplementationKey{}, false
+	}
+
+	return serviceImplementationKey{
+		typ: v.Type(),
+		ptr: v.Pointer(),
+	}, true
+}
+
+func closedChannel() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
 }

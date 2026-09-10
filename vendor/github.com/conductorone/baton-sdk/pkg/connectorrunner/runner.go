@@ -8,8 +8,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/bid"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/healthcheck"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -19,6 +25,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -29,61 +36,105 @@ import (
 	"github.com/conductorone/baton-sdk/internal/connector"
 )
 
-const (
-	// taskConcurrency configures how many tasks we run concurrently.
-	taskConcurrency = 3
-)
-
 type connectorRunner struct {
-	cw        types.ClientWrapper
-	oneShot   bool
-	tasks     tasks.Manager
-	debugFile *os.File
+	cw              types.ClientWrapper
+	oneShot         bool
+	tasks           tasks.Manager
+	taskConcurrency int // concurrent task slots (>= 1)
+	debugFile       *os.File
+	debugFileMutex  sync.Mutex
+	healthServer    *healthcheck.Server
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
 
-// Run starts a connector and creates a new C1Z file.
-func (c *connectorRunner) Run(ctx context.Context) error {
+// setupPersistentLog ensures that a log file on disk is created,
+// when required by either the stored Manager or by a Task.
+// A log file created by a stored Manager persists for our entire run,
+// while a log file created for a Task only lasts for that Task.
+// (There is currently no good way for a Manager to require this.)
+//
+// This function always returns a valid context, even if
+// a persistent log file could not be created.
+func (c *connectorRunner) setupPersistentLog(ctx context.Context, requiredByTask bool) (context.Context, error) {
+	var err error
+
+	// We lock around manipulation of the debug file field for safety,
+	// but make no attempt to serialize logging of concurrent tasks.
+	c.debugFileMutex.Lock()
+	defer c.debugFileMutex.Unlock()
+
 	l := ctxzap.Extract(ctx)
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(ErrSigTerm)
 
-	if c.tasks.ShouldDebug() && c.debugFile == nil {
-		var err error
-		tempDir := c.tasks.GetTempDir()
-		if tempDir == "" {
-			wd, err := os.Getwd()
-			if err != nil {
-				l.Warn("unable to get the current working directory", zap.Error(err))
-			}
+	requiredByManager := c.tasks.ShouldDebug()
+	if !requiredByTask && !requiredByManager {
+		// If we're not being required to create a persistent log by a task
+		// and our runner doesn't want one, we have nothing to do.
+		return ctx, nil
+	} else if c.debugFile != nil && requiredByManager {
+		// If a log file already exists from our runner,
+		// we also have nothing to do.
+		return ctx, nil
+	}
 
-			if wd != "" {
-				l.Warn("no temporal folder found on this system according to our task manager,"+
-					" we may create files in the current working directory by mistake as a result",
-					zap.String("current working directory", wd))
-			} else {
-				l.Warn("no temporal folder found on this system according to our task manager")
-			}
-		}
-		debugFile := filepath.Join(tempDir, "debug.log")
-		c.debugFile, err = os.Create(debugFile)
+	if c.debugFile != nil {
+		// A log file already exists from a previous task, and it is time to rotate it.
+		// The file is likely already closed, but we attempt to Close() it to be sure
+		// and rotate it by calling Create() on it below - this is equivalent to open(O_TRUNC).
+		l.Info("Rotating existing log file")
+		err = c.debugFile.Close()
 		if err != nil {
-			l.Warn("cannot create file", zap.String("full file path", debugFile), zap.Error(err))
+			l.Warn("cannot close existing log file, continuing to rotate log...", zap.Error(err))
+		}
+
+		c.debugFile = nil
+	}
+
+	// Create/truncate the log file, and open it.
+	tempDir := c.tasks.GetTempDir()
+	if tempDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			l.Warn("unable to get the current working directory", zap.Error(err))
+		}
+
+		if wd != "" {
+			l.Warn("no temporal folder found on this system according to our task manager,"+
+				" we may create files in the current working directory by mistake as a result",
+				zap.String("current working directory", wd))
+		} else {
+			l.Warn("no temporal folder found on this system according to our task manager")
 		}
 	}
 
-	// modify the context to insert a logger directed to a file
-	if c.debugFile != nil {
-		writeSyncer := zapcore.AddSync(c.debugFile)
-		encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
-		core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
+	debugFile := filepath.Join(tempDir, "debug.log")
+	c.debugFile, err = os.Create(debugFile)
+	if err != nil {
+		l.Warn("cannot create debug log file", zap.String("file_path", debugFile), zap.Error(err))
+		return ctx, err
+	}
 
-		l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(c, core)
-		}))
+	// Modify the context to insert a logger directed to that file.
+	writeSyncer := zapcore.AddSync(c.debugFile)
+	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+	core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
 
-		ctx = ctxzap.ToContext(ctx, l)
+	l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(c, core)
+	}))
+	return ctxzap.ToContext(ctx, l), nil
+}
+
+// Run starts a connector and creates a new C1Z file.
+func (c *connectorRunner) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(ErrSigTerm)
+
+	var err error
+	ctx, err = c.setupPersistentLog(ctx, false)
+	if err != nil {
+		l := ctxzap.Extract(ctx)
+		l.Warn("Persistent logging could not be set up.", zap.Error(err))
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -94,7 +145,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := c.run(ctx)
+	err = c.run(ctx)
 	if err != nil {
 		return err
 	}
@@ -125,6 +176,16 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 		return fmt.Errorf("runner: error creating connector client: %w", err)
 	}
 
+	// While we may not have already set up a persistent log file,
+	// if the task requires one, we set it up here.
+	if task.GetDebug() {
+		ctx, err = c.setupPersistentLog(ctx, true)
+		if err != nil {
+			l := ctxzap.Extract(ctx)
+			l.Warn("Persistent logging for this Task could not be set up.", zap.Error(err))
+		}
+	}
+
 	err = c.tasks.Process(ctx, task, cc)
 	if err != nil {
 		return fmt.Errorf("runner: error processing task: %w", err)
@@ -133,7 +194,7 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	return nil
 }
 
-func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Duration {
+func (c *connectorRunner) backoff(_ context.Context, errCount int) time.Duration {
 	waitDuration := time.Duration(errCount*errCount) * time.Second
 	if waitDuration > time.Minute {
 		waitDuration = time.Minute
@@ -144,9 +205,13 @@ func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Durati
 func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	sem := semaphore.NewWeighted(int64(taskConcurrency))
+	if !c.oneShot && c.taskConcurrency != field.TaskConcurrencySchemaDefault {
+		l.Info("runner: task concurrency", zap.Int("slots", c.taskConcurrency))
+	}
 
-	waitDuration := time.Second * 0
+	sem := semaphore.NewWeighted(int64(c.taskConcurrency))
+
+	nextCheckAfter := time.Second * 0
 	errCount := 0
 	stopForLoop := false
 	var err error
@@ -154,38 +219,35 @@ func (c *connectorRunner) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
-		case <-time.After(waitDuration):
+		case <-time.After(nextCheckAfter):
 			l.Debug("runner: claiming worker")
 			// Acquire a worker slot before we call Next() so we don't claim a task before we can actually process it.
 			err = sem.Acquire(ctx, 1)
 			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					// Any error returned from Acquire() is due to the context being cancelled.
-					// Except for some tests where error is context deadline exceeded
-					sem.Release(1)
-				}
+				l.Error("runner: error acquiring semaphore to claim worker", zap.Error(err))
 				return c.handleContextCancel(ctx)
 			}
 			l.Debug("runner: worker claimed, checking for next task")
 
-			// Fetch the next task.
-			nextTask, nextWaitDuration, err := c.tasks.Next(ctx)
+			// Ask the manager for local or remote work. With batched task managers,
+			// the manager owns remote poll deadlines while it buffers local tasks.
+			nextTask, nextCheckAfterFromManager, err := c.tasks.Next(ctx)
 			if err != nil {
 				// TODO(morgabra) Use a library with jitter for this?
 				errCount++
-				waitDuration = c.backoff(ctx, errCount)
-				l.Error("runner: error getting next task", zap.Error(err), zap.Int("err_count", errCount), zap.Duration("wait_duration", waitDuration))
+				nextCheckAfter = c.backoff(ctx, errCount)
+				l.Error("runner: error getting next task", zap.Error(err), zap.Int("err_count", errCount), zap.Duration("next_check_after", nextCheckAfter))
 				sem.Release(1)
 				continue
 			}
 
 			errCount = 0
-			waitDuration = nextWaitDuration
+			nextCheckAfter = nextCheckAfterFromManager
 
 			// nil tasks mean there are no tasks to process.
 			if nextTask == nil {
 				sem.Release(1)
-				l.Debug("runner: no tasks to process", zap.Duration("wait_duration", waitDuration))
+				l.Debug("runner: no tasks to process", zap.Duration("next_check_after", nextCheckAfter))
 				if c.oneShot {
 					l.Debug("runner: one-shot mode enabled. Exiting.")
 					return nil
@@ -193,7 +255,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				continue
 			}
 
-			l.Debug("runner: got task", zap.String("task_id", nextTask.Id), zap.String("task_type", tasks.GetType(nextTask).String()))
+			l.Debug("runner: got task", zap.String("task_id", nextTask.GetId()), zap.String("task_type", tasks.GetType(nextTask).String()))
 
 			// If we're in one-shot mode, process the task synchronously.
 			if c.oneShot {
@@ -204,7 +266,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 					l.Error(
 						"runner: error processing on-demand task",
 						zap.Error(err),
-						zap.String("task_id", nextTask.Id),
+						zap.String("task_id", nextTask.GetId()),
 						zap.String("task_type", tasks.GetType(nextTask).String()),
 					)
 					return err
@@ -214,25 +276,25 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 			// We got a task, so process it concurrently.
 			go func(t *v1.Task) {
-				l.Debug("runner: starting processing task", zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
+				l.Debug("runner: starting processing task", zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 				defer sem.Release(1)
 				err := c.processTask(ctx, t)
 				if err != nil {
 					if strings.Contains(err.Error(), "grpc: the client connection is closing") {
 						stopForLoop = true
 					}
-					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
+					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 					return
 				}
-				l.Debug("runner: task processed", zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
+				l.Debug("runner: task processed", zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 			}(nextTask)
 
-			l.Debug("runner: dispatched task, waiting for next task", zap.Duration("wait_duration", waitDuration))
+			l.Debug("runner: dispatched task, asking manager again after delay", zap.Duration("next_check_after", nextCheckAfter))
 		}
 	}
 
 	if stopForLoop {
-		return fmt.Errorf("Unable to communicate with gRPC server")
+		return fmt.Errorf("unable to communicate with gRPC server")
 	}
 
 	return nil
@@ -240,6 +302,14 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 func (c *connectorRunner) Close(ctx context.Context) error {
 	var retErr error
+
+	// Stop health check server if running
+	if c.healthServer != nil {
+		if err := c.healthServer.Stop(ctx); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+		c.healthServer = nil
+	}
 
 	if err := c.cw.Close(); err != nil {
 		retErr = errors.Join(retErr, err)
@@ -282,9 +352,20 @@ type revokeConfig struct {
 }
 
 type createAccountConfig struct {
-	login   string
-	email   string
-	profile *structpb.Struct
+	login          string
+	email          string
+	profile        *structpb.Struct
+	resourceTypeID string // Optional: if set, creates an account for the specified resource type.
+}
+
+type invokeActionConfig struct {
+	action         string
+	resourceTypeID string // Optional: if set, invokes a resource-scoped action
+	args           *structpb.Struct
+}
+
+type listActionSchemasConfig struct {
+	resourceTypeID string // Optional: filter by resource type
 }
 
 type deleteResourceConfig struct {
@@ -300,11 +381,7 @@ type rotateCredentialsConfig struct {
 type eventStreamConfig struct {
 	feedId  string
 	startAt time.Time
-}
-
-type syncDifferConfig struct {
-	baseSyncID    string
-	appliedSyncID string
+	cursor  string
 }
 
 type syncCompactorConfig struct {
@@ -314,32 +391,58 @@ type syncCompactorConfig struct {
 }
 
 type runnerConfig struct {
-	rlCfg                               *ratelimitV1.RateLimiterConfig
-	rlDescriptors                       []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand                            bool
-	c1zPath                             string
-	clientAuth                          bool
-	clientID                            string
-	clientSecret                        string
-	provisioningEnabled                 bool
-	ticketingEnabled                    bool
-	grantConfig                         *grantConfig
-	revokeConfig                        *revokeConfig
-	eventFeedConfig                     *eventStreamConfig
-	tempDir                             string
-	createAccountConfig                 *createAccountConfig
-	deleteResourceConfig                *deleteResourceConfig
-	rotateCredentialsConfig             *rotateCredentialsConfig
-	createTicketConfig                  *createTicketConfig
-	bulkCreateTicketConfig              *bulkCreateTicketConfig
-	listTicketSchemasConfig             *listTicketSchemasConfig
-	getTicketConfig                     *getTicketConfig
-	syncDifferConfig                    *syncDifferConfig
-	syncCompactorConfig                 *syncCompactorConfig
-	skipFullSync                        bool
-	targetedSyncResourceIDs             []string
-	externalResourceC1Z                 string
-	externalResourceEntitlementIdFilter string
+	rlCfg                                 *ratelimitV1.RateLimiterConfig
+	rlDescriptors                         []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemand                              bool
+	c1zPath                               string
+	clientAuth                            bool
+	clientID                              string
+	clientSecret                          string
+	provisioningEnabled                   bool
+	ticketingEnabled                      bool
+	actionsEnabled                        bool
+	grantConfig                           *grantConfig
+	revokeConfig                          *revokeConfig
+	eventFeedConfig                       *eventStreamConfig
+	tempDir                               string
+	createAccountConfig                   *createAccountConfig
+	invokeActionConfig                    *invokeActionConfig
+	listActionSchemasConfig               *listActionSchemasConfig
+	deleteResourceConfig                  *deleteResourceConfig
+	rotateCredentialsConfig               *rotateCredentialsConfig
+	createTicketConfig                    *createTicketConfig
+	bulkCreateTicketConfig                *bulkCreateTicketConfig
+	listTicketSchemasConfig               *listTicketSchemasConfig
+	getTicketConfig                       *getTicketConfig
+	syncCompactorConfig                   *syncCompactorConfig
+	skipFullSync                          bool
+	storageEngine                         c1zstore.Engine
+	workerCount                           int
+	targetedSyncResourceIDs               []string
+	externalResourceC1Z                   string
+	externalResourceEntitlementIdFilter   string
+	externalResourceTraits                []v2.ResourceType_Trait
+	keepPreviousSyncC1ZCapable            bool
+	keepPreviousSyncC1ZEnabled            bool
+	skipEntitlementsAndGrants             bool
+	skipGrants                            bool
+	sessionStoreEnabled                   bool
+	syncResourceTypeIDs                   []string
+	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
+	defaultCapabilitiesConnectorBuilderV2 connectorbuilder.ConnectorBuilderV2
+	defaultCapabilitiesConnectorFactory   func(ctx context.Context) (types.ConnectorServer, error)
+	healthCheckEnabled                    bool
+	healthCheckPort                       int
+	healthCheckBindAddress                string
+	taskConcurrency                       int // effective task slots after applying WithTaskConcurrency
+	taskConcurrencySet                    bool
+}
+
+func WithSessionStoreEnabled() Option {
+	return func(ctx context.Context, w *runnerConfig) error {
+		w.sessionStoreEnabled = true
+		return nil
+	}
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -357,14 +460,12 @@ func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {
 // The `opts` map is injected into the environment in order for the service to be configured.
 func WithExternalLimiter(address string, opts map[string]string) Option {
 	return func(ctx context.Context, w *runnerConfig) error {
-		w.rlCfg = &ratelimitV1.RateLimiterConfig{
-			Type: &ratelimitV1.RateLimiterConfig_External{
-				External: &ratelimitV1.ExternalLimiter{
-					Address: address,
-					Options: opts,
-				},
-			},
-		}
+		w.rlCfg = ratelimitV1.RateLimiterConfig_builder{
+			External: ratelimitV1.ExternalLimiter_builder{
+				Address: address,
+				Options: opts,
+			}.Build(),
+		}.Build()
 
 		return nil
 	}
@@ -375,13 +476,14 @@ func WithExternalLimiter(address string, opts map[string]string) Option {
 // `usePercent` is value between 0 and 100.
 func WithSlidingMemoryLimiter(usePercent int64) Option {
 	return func(ctx context.Context, w *runnerConfig) error {
-		w.rlCfg = &ratelimitV1.RateLimiterConfig{
-			Type: &ratelimitV1.RateLimiterConfig_SlidingMem{
-				SlidingMem: &ratelimitV1.SlidingMemoryLimiter{
-					UsePercent: float64(usePercent / 100),
-				},
-			},
+		if usePercent < 0 || usePercent > 100 {
+			return fmt.Errorf("usePercent must be between 0 and 100")
 		}
+		w.rlCfg = ratelimitV1.RateLimiterConfig_builder{
+			SlidingMem: ratelimitV1.SlidingMemoryLimiter_builder{
+				UsePercent: float64(usePercent) / 100.0,
+			}.Build(),
+		}.Build()
 
 		return nil
 	}
@@ -392,14 +494,12 @@ func WithSlidingMemoryLimiter(usePercent int64) Option {
 // `period` represents the elapsed time between two instants as an int64 nanosecond count.
 func WithFixedMemoryLimiter(rate int64, period time.Duration) Option {
 	return func(ctx context.Context, w *runnerConfig) error {
-		w.rlCfg = &ratelimitV1.RateLimiterConfig{
-			Type: &ratelimitV1.RateLimiterConfig_FixedMem{
-				FixedMem: &ratelimitV1.FixedMemoryLimiter{
-					Rate:   rate,
-					Period: durationpb.New(period),
-				},
-			},
-		}
+		w.rlCfg = ratelimitV1.RateLimiterConfig_builder{
+			FixedMem: ratelimitV1.FixedMemoryLimiter_builder{
+				Rate:   rate,
+				Period: durationpb.New(period),
+			}.Build(),
+		}.Build()
 
 		return nil
 	}
@@ -450,14 +550,43 @@ func WithOnDemandRevoke(c1zPath string, grantID string) Option {
 	}
 }
 
-func WithOnDemandCreateAccount(c1zPath string, login string, email string, profile *structpb.Struct) Option {
+func WithOnDemandCreateAccount(c1zPath string, login string, email string, profile *structpb.Struct, resourceTypeId string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
 		cfg.createAccountConfig = &createAccountConfig{
-			login:   login,
-			email:   email,
-			profile: profile,
+			login:          login,
+			email:          email,
+			profile:        profile,
+			resourceTypeID: resourceTypeId,
+		}
+		return nil
+	}
+}
+
+// WithOnDemandInvokeAction creates an option for invoking an action.
+// If resourceTypeID is provided, it invokes a resource-scoped action.
+func WithOnDemandInvokeAction(c1zPath string, action string, resourceTypeID string, args *structpb.Struct) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.invokeActionConfig = &invokeActionConfig{
+			action:         action,
+			resourceTypeID: resourceTypeID,
+			args:           args,
+		}
+		return nil
+	}
+}
+
+// WithOnDemandListActionSchemas creates an option for listing action schemas.
+// If resourceTypeID is provided, it filters schemas for that specific resource type.
+func WithOnDemandListActionSchemas(c1zPath string, resourceTypeID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.listActionSchemasConfig = &listActionSchemasConfig{
+			resourceTypeID: resourceTypeID,
 		}
 		return nil
 	}
@@ -495,12 +624,13 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
-func WithOnDemandEventStream(feedId string, startAt time.Time) Option {
+func WithOnDemandEventStream(feedId string, startAt time.Time, cursor string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.eventFeedConfig = &eventStreamConfig{
 			feedId:  feedId,
 			startAt: startAt,
+			cursor:  cursor,
 		}
 		return nil
 	}
@@ -513,6 +643,13 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
+func WithActionsEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.actionsEnabled = true
+		return nil
+	}
+}
+
 func WithFullSyncDisabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.skipFullSync = true
@@ -520,9 +657,41 @@ func WithFullSyncDisabled() Option {
 	}
 }
 
-func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
+func WithWorkerCount(workerCount int) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.workerCount = workerCount
+		return nil
+	}
+}
+
+func WithStorageEngine(engine c1zstore.Engine) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.storageEngine = engine
+		return nil
+	}
+}
+
+// WithTaskConcurrency sets how many Baton tasks may run concurrently in service mode.
+// n uses the same raw sentinels as sync workers: -1 for auto-detect, 0 for sequential,
+// and >0 for that many concurrent tasks.
+func WithTaskConcurrency(n int) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.taskConcurrency = n
+		cfg.taskConcurrencySet = true
+		return nil
+	}
+}
+
+func WithTargetedSyncResources(resourceIDs []string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.targetedSyncResourceIDs = resourceIDs
+		return nil
+	}
+}
+
+func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.syncResourceTypeIDs = resourceTypeIDs
 		return nil
 	}
 }
@@ -593,14 +762,53 @@ func WithExternalResourceEntitlementFilter(entitlementId string) Option {
 	}
 }
 
-func WithDiffSyncs(c1zPath string, baseSyncID string, newSyncID string) Option {
+// WithExternalResourceTraits sets the resource type traits the External
+// Identity Matcher should sync and match against from the external
+// resource c1z (see WithExternalResourceC1Z). When not called, the matcher
+// falls back to TRAIT_USER/TRAIT_GROUP — the pre-CE-975 default — so
+// existing runner callers keep working unchanged. Passing any traits
+// replaces the default entirely: a connector matching grants against
+// service-principal identities synced by another connector as TRAIT_APP
+// that still wants default user/group matching must pass TRAIT_USER,
+// TRAIT_GROUP, TRAIT_APP.
+func WithExternalResourceTraits(traits ...v2.ResourceType_Trait) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
-		cfg.syncDifferConfig = &syncDifferConfig{
-			baseSyncID:    baseSyncID,
-			appliedSyncID: newSyncID,
-		}
+		cfg.externalResourceTraits = append(cfg.externalResourceTraits, traits...)
+		return nil
+	}
+}
+
+// WithKeepPreviousSyncC1Z is the connector AUTHOR's build-time
+// declaration that this connector supports ETag replay in service
+// mode: after each successful upload the runner retains the uploaded
+// c1z as a local spare (one file, fixed name, replaced atomically each
+// sync) and feeds it to the next full sync as the previous-sync replay
+// source.
+//
+// The capability alone does nothing — the CUSTOMER must also enable it
+// at runtime (--keep-previous-sync-c1z / BATON_KEEP_PREVIOUS_SYNC_C1Z,
+// which sets WithKeepPreviousSyncC1ZRuntimeOptIn). Both are required:
+// the author knows whether the connector emits ETags; the customer
+// decides whether to spend a c1z of host disk on the spare. No effect
+// in local/on-demand modes, which keep their c1z at a stable path
+// already.
+func WithKeepPreviousSyncC1Z() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.keepPreviousSyncC1ZCapable = true
+		return nil
+	}
+}
+
+// WithKeepPreviousSyncC1ZRuntimeOptIn is the customer's runtime half of
+// the ETag-replay opt-in, set by the --keep-previous-sync-c1z flag /
+// BATON_KEEP_PREVIOUS_SYNC_C1Z env var. It only takes effect on
+// connectors whose author declared the capability via
+// WithKeepPreviousSyncC1Z; on any other connector it is inert (and the
+// runner logs a warning so the customer isn't left wondering why ETag
+// replay never activates).
+func WithKeepPreviousSyncC1ZRuntimeOptIn() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.keepPreviousSyncC1ZEnabled = true
 		return nil
 	}
 }
@@ -617,6 +825,116 @@ func WithSyncCompactor(outputPath string, filePaths []string, syncIDs []string) 
 		}
 		return nil
 	}
+}
+
+func WithSkipEntitlementsAndGrants(skip bool) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.skipEntitlementsAndGrants = skip
+		return nil
+	}
+}
+
+func WithSkipGrants(skip bool) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		if skip && len(cfg.targetedSyncResourceIDs) == 0 {
+			return fmt.Errorf("skip-grants can only be set within a targeted sync")
+		}
+		cfg.skipGrants = skip
+		return nil
+	}
+}
+
+// WithDefaultCapabilitiesConnectorBuilder sets the default connector builder for the runner
+// This is used by the "capabilities" sub-command to instantiate the connector.
+func WithDefaultCapabilitiesConnectorBuilder(t connectorbuilder.ConnectorBuilder) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.defaultCapabilitiesConnectorBuilder = t
+		return nil
+	}
+}
+
+// WithDefaultCapabilitiesConnectorBuilderV2 sets the default connector builder for the runner
+// This is used by the "capabilities" sub-command to instantiate the connector.
+func WithDefaultCapabilitiesConnectorBuilderV2(t connectorbuilder.ConnectorBuilderV2) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.defaultCapabilitiesConnectorBuilderV2 = t
+		return nil
+	}
+}
+
+// WithDefaultCapabilitiesConnectorFactory sets a factory that supplies the connector
+// used by the "capabilities" sub-command. Unlike WithDefaultCapabilitiesConnectorBuilder,
+// the factory returns a fully-constructed types.ConnectorServer directly, so the connector
+// is not wrapped by connectorbuilder.NewConnector. This lets callers provide a connector
+// (such as an embedded connector) whose capabilities are reported via GetMetadata rather
+// than via the optional GetCapabilities getter.
+//
+// The factory is only invoked inside the capabilities command, and its returned connector
+// is closed (if it implements Close) once capabilities have been read.
+func WithDefaultCapabilitiesConnectorFactory(f func(ctx context.Context) (types.ConnectorServer, error)) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.defaultCapabilitiesConnectorFactory = f
+		return nil
+	}
+}
+
+// WithHealthCheck enables the HTTP health check server.
+func WithHealthCheck(enabled bool, port int, bindAddress string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.healthCheckEnabled = enabled
+		cfg.healthCheckPort = port
+		cfg.healthCheckBindAddress = bindAddress
+		return nil
+	}
+}
+
+func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error) {
+	cfg := &runnerConfig{}
+
+	for _, o := range options {
+		err := o(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cfg.defaultCapabilitiesConnectorBuilder != nil {
+		return cfg.defaultCapabilitiesConnectorBuilder, nil
+	}
+
+	if cfg.defaultCapabilitiesConnectorBuilderV2 != nil {
+		return cfg.defaultCapabilitiesConnectorBuilderV2, nil
+	}
+
+	return nil, nil
+}
+
+// ExtractDefaultCapabilitiesConnectorFactory returns the factory registered via
+// WithDefaultCapabilitiesConnectorFactory, or nil if none was set.
+func ExtractDefaultCapabilitiesConnectorFactory(ctx context.Context, options ...Option) (func(ctx context.Context) (types.ConnectorServer, error), error) {
+	cfg := &runnerConfig{}
+
+	for _, o := range options {
+		err := o(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return cfg.defaultCapabilitiesConnectorFactory, nil
+}
+
+func IsSessionStoreEnabled(ctx context.Context, options ...Option) (bool, error) {
+	cfg := &runnerConfig{}
+
+	for _, o := range options {
+		err := o(ctx, cfg)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return cfg.sessionStoreEnabled, nil
 }
 
 // NewConnectorRunner creates a new connector runner.
@@ -651,18 +969,56 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	if len(cfg.targetedSyncResourceIDs) > 0 {
-		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs))
+		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResources(cfg.targetedSyncResourceIDs))
+	}
+
+	if cfg.sessionStoreEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithSessionStoreEnabled())
+	}
+
+	if len(cfg.syncResourceTypeIDs) > 0 {
+		wrapperOpts = append(wrapperOpts, connector.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs))
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
 	}
+	// From here on, any error path that hasn't flipped cwReady leaves the
+	// connector wrapper to be closed by the deferred guard so we don't leak
+	// its subprocess plugin / pooled resources.
+	cwReady := false
+	defer func() {
+		if !cwReady {
+			_ = cw.Close()
+		}
+	}()
+
+	resources := make([]*v2.Resource, 0, len(cfg.targetedSyncResourceIDs))
+	for _, resourceId := range cfg.targetedSyncResourceIDs {
+		r, err := bid.ParseResourceBid(resourceId)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, r)
+	}
 
 	runner.cw = cw
 
+	if cfg.taskConcurrencySet {
+		runner.taskConcurrency = cfg.taskConcurrency
+	} else {
+		runner.taskConcurrency = field.TaskConcurrencySchemaDefault
+	}
+
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
+		if cfg.c1zPath == "" &&
+			cfg.eventFeedConfig == nil &&
+			cfg.createTicketConfig == nil &&
+			cfg.listTicketSchemasConfig == nil &&
+			cfg.getTicketConfig == nil &&
+			cfg.bulkCreateTicketConfig == nil &&
+			cfg.listActionSchemasConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -681,7 +1037,13 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
 
 		case cfg.createAccountConfig != nil:
-			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile)
+			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile, cfg.createAccountConfig.resourceTypeID)
+
+		case cfg.invokeActionConfig != nil:
+			tm = local.NewActionInvoker(ctx, cfg.c1zPath, cfg.invokeActionConfig.action, cfg.invokeActionConfig.resourceTypeID, cfg.invokeActionConfig.args)
+
+		case cfg.listActionSchemasConfig != nil:
+			tm = local.NewListActionSchemas(ctx, cfg.listActionSchemasConfig.resourceTypeID)
 
 		case cfg.deleteResourceConfig != nil:
 			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
@@ -690,7 +1052,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
-			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt)
+			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		case cfg.listTicketSchemasConfig != nil:
@@ -699,8 +1061,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
 		case cfg.bulkCreateTicketConfig != nil:
 			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
-		case cfg.syncDifferConfig != nil:
-			tm = local.NewDiffer(ctx, cfg.c1zPath, cfg.syncDifferConfig.baseSyncID, cfg.syncDifferConfig.appliedSyncID)
 		case cfg.syncCompactorConfig != nil:
 			c := cfg.syncCompactorConfig
 			if len(c.filePaths) != len(c.syncIDs) {
@@ -713,13 +1073,19 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 					SyncID:   c.syncIDs[i],
 				})
 			}
-			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
+			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs, cfg.tempDir, local.WithCompactorStorageEngine(cfg.storageEngine))
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
 				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
-				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
+				local.WithExternalResourceTraits(cfg.externalResourceTraits),
+				local.WithTargetedSyncResources(resources),
+				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+				local.WithSkipGrants(cfg.skipGrants),
+				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
+				local.WithWorkerCount(cfg.workerCount),
+				local.WithStorageEngine(cfg.storageEngine),
 			)
 			if err != nil {
 				return nil, err
@@ -729,14 +1095,72 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		runner.tasks = tm
 
 		runner.oneShot = true
+		cwReady = true
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter, cfg.targetedSyncResourceIDs)
+	// At this point we are definitively in service / daemon mode: one-shot
+	// (cfg.onDemand) returned above, and Lambda mode never reaches
+	// NewConnectorRunner. Only this path sends a startup Hello to Conductor
+	// One — local / one-shot managers and Lambda intentionally do not.
+
+	// ETag replay requires BOTH halves of the opt-in: the author's
+	// build-time capability declaration AND the customer's runtime flag.
+	// A runtime flag on a connector without the capability is inert —
+	// warn so the customer isn't left wondering why replay never
+	// activates.
+	keepPreviousSyncC1Z := cfg.keepPreviousSyncC1ZCapable && cfg.keepPreviousSyncC1ZEnabled
+	if cfg.keepPreviousSyncC1ZEnabled && !cfg.keepPreviousSyncC1ZCapable {
+		ctxzap.Extract(ctx).Warn("keep-previous-sync-c1z is set, but this connector does not declare ETag-replay support; the flag has no effect")
+	}
+
+	tm, err := c1api.NewC1TaskManager(
+		ctx,
+		cfg.clientID,
+		cfg.clientSecret,
+		cfg.tempDir,
+		cfg.skipFullSync,
+		cfg.externalResourceC1Z,
+		cfg.externalResourceEntitlementIdFilter,
+		cfg.externalResourceTraits,
+		resources,
+		cfg.syncResourceTypeIDs,
+		cfg.workerCount,
+		cfg.storageEngine,
+		runner.taskConcurrency,
+		keepPreviousSyncC1Z,
+	)
 	if err != nil {
 		return nil, err
 	}
+
+	// Run the startup Hello handshake before handing control to the task loop.
+	// Bootstrap blocks (with exponential backoff up to 5 minutes) on transient
+	// failures and returns an error on ctx cancel or non-retryable responses
+	// like bad credentials.
+	cc, err := cw.C(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runner: failed to get connector client for startup Hello: %w", err)
+	}
+	if err := tm.Bootstrap(ctx, cc); err != nil {
+		return nil, fmt.Errorf("runner: startup Hello failed: %w", err)
+	}
 	runner.tasks = tm
 
+	// Start health check server if enabled (only for daemon mode)
+	if cfg.healthCheckEnabled {
+		healthCfg := healthcheck.Config{
+			Enabled:     true,
+			Port:        cfg.healthCheckPort,
+			BindAddress: cfg.healthCheckBindAddress,
+		}
+		healthServer := healthcheck.NewServer(healthCfg, cw.C)
+		if err := healthServer.Start(ctx); err != nil {
+			return nil, fmt.Errorf("failed to start health check server: %w", err)
+		}
+		runner.healthServer = healthServer
+	}
+
+	cwReady = true
 	return runner, nil
 }

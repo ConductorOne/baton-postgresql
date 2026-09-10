@@ -12,15 +12,18 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 )
 
 type localAccountManager struct {
 	dbPath string
 	o      sync.Once
 
-	login   string
-	email   string
-	profile *structpb.Struct
+	login          string
+	email          string
+	profile        *structpb.Struct
+	resourceTypeId string
 }
 
 func (m *localAccountManager) GetTempDir() string {
@@ -34,20 +37,24 @@ func (m *localAccountManager) ShouldDebug() bool {
 func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_CreateAccount{},
-		}
+		task = v1.Task_builder{
+			CreateAccount: &v1.Task_CreateAccountTask{
+				ResourceTypeId: m.resourceTypeId,
+			},
+		}.Build()
 	})
 	return task, 0, nil
 }
 
 func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localAccountManager.Process", trace.WithNewRoot())
-	defer span.End()
+	ctx = uotelzap.WithSpanLogFields(ctx)
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	accountManager := provisioner.NewCreateAccountManager(cc, m.dbPath, m.login, m.email, m.profile)
+	accountManager := provisioner.NewCreateAccountManager(cc, m.dbPath, m.login, m.email, m.profile, m.resourceTypeId)
 
-	err := accountManager.Run(ctx)
+	err = accountManager.Run(ctx)
 	if err != nil {
 		return err
 	}
@@ -60,12 +67,13 @@ func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc typ
 	return nil
 }
 
-// NewGranter returns a task manager that queues a sync task.
-func NewCreateAccountManager(ctx context.Context, dbPath string, login string, email string, profile *structpb.Struct) tasks.Manager {
+// NewCreateAccountManager returns a task manager that queues a create account task.
+func NewCreateAccountManager(ctx context.Context, dbPath string, login string, email string, profile *structpb.Struct, resourceTypeId string) tasks.Manager {
 	return &localAccountManager{
-		dbPath:  dbPath,
-		login:   login,
-		email:   email,
-		profile: profile,
+		dbPath:         dbPath,
+		login:          login,
+		email:          email,
+		profile:        profile,
+		resourceTypeId: resourceTypeId,
 	}
 }
