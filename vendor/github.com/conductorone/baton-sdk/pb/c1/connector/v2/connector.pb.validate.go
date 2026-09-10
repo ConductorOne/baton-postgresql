@@ -91,6 +91,21 @@ func (m *ConnectorServiceCleanupRequest) validate(all bool) error {
 
 	}
 
+	if m.GetActiveSyncId() != "" {
+
+		if l := len(m.GetActiveSyncId()); l < 1 || l > 1024 {
+			err := ConnectorServiceCleanupRequestValidationError{
+				field:  "ActiveSyncId",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return ConnectorServiceCleanupRequestMultiError(errors)
 	}
@@ -1037,6 +1052,494 @@ var _ interface {
 	ErrorName() string
 } = CredentialDetailsCredentialRotationValidationError{}
 
+// Validate checks the field values on CredentialDetailsCredentialIssue with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *CredentialDetailsCredentialIssue) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialDetailsCredentialIssue with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// CredentialDetailsCredentialIssueMultiError, or nil if none found.
+func (m *CredentialDetailsCredentialIssue) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialDetailsCredentialIssue) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetOptions() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialDetailsCredentialIssueValidationError{
+						field:  fmt.Sprintf("Options[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialDetailsCredentialIssueValidationError{
+						field:  fmt.Sprintf("Options[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialDetailsCredentialIssueValidationError{
+					field:  fmt.Sprintf("Options[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	// no validation rules for PreferredOption
+
+	if len(errors) > 0 {
+		return CredentialDetailsCredentialIssueMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialDetailsCredentialIssueMultiError is an error wrapping multiple
+// validation errors returned by
+// CredentialDetailsCredentialIssue.ValidateAll() if the designated
+// constraints aren't met.
+type CredentialDetailsCredentialIssueMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialDetailsCredentialIssueMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialDetailsCredentialIssueMultiError) AllErrors() []error { return m }
+
+// CredentialDetailsCredentialIssueValidationError is the validation error
+// returned by CredentialDetailsCredentialIssue.Validate if the designated
+// constraints aren't met.
+type CredentialDetailsCredentialIssueValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialDetailsCredentialIssueValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialDetailsCredentialIssueValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialDetailsCredentialIssueValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialDetailsCredentialIssueValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialDetailsCredentialIssueValidationError) ErrorName() string {
+	return "CredentialDetailsCredentialIssueValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialDetailsCredentialIssueValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialDetailsCredentialIssue.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialDetailsCredentialIssueValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialDetailsCredentialIssueValidationError{}
+
+// Validate checks the field values on CredentialIssueOptionDescriptor with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CredentialIssueOptionDescriptor) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialIssueOptionDescriptor with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// CredentialIssueOptionDescriptorMultiError, or nil if none found.
+func (m *CredentialIssueOptionDescriptor) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Option
+
+	for idx, item := range m.GetKeyProfiles() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+						field:  fmt.Sprintf("KeyProfiles[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+						field:  fmt.Sprintf("KeyProfiles[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialIssueOptionDescriptorValidationError{
+					field:  fmt.Sprintf("KeyProfiles[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetExpiry()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+					field:  "Expiry",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+					field:  "Expiry",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetExpiry()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialIssueOptionDescriptorValidationError{
+				field:  "Expiry",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for CustomScopesAllowed
+
+	// no validation rules for CustomAudiencesAllowed
+
+	// no validation rules for ResourceMode
+
+	if l := len(m.GetSecretResourceTypeId()); l < 1 || l > 1024 {
+		err := CredentialIssueOptionDescriptorValidationError{
+			field:  "SecretResourceTypeId",
+			reason: "value length must be between 1 and 1024 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for Preferred
+
+	if len(errors) > 0 {
+		return CredentialIssueOptionDescriptorMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialIssueOptionDescriptorMultiError is an error wrapping multiple
+// validation errors returned by CredentialIssueOptionDescriptor.ValidateAll()
+// if the designated constraints aren't met.
+type CredentialIssueOptionDescriptorMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialIssueOptionDescriptorMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialIssueOptionDescriptorMultiError) AllErrors() []error { return m }
+
+// CredentialIssueOptionDescriptorValidationError is the validation error
+// returned by CredentialIssueOptionDescriptor.Validate if the designated
+// constraints aren't met.
+type CredentialIssueOptionDescriptorValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialIssueOptionDescriptorValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialIssueOptionDescriptorValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialIssueOptionDescriptorValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialIssueOptionDescriptorValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialIssueOptionDescriptorValidationError) ErrorName() string {
+	return "CredentialIssueOptionDescriptorValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialIssueOptionDescriptorValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialIssueOptionDescriptor.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialIssueOptionDescriptorValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialIssueOptionDescriptorValidationError{}
+
+// Validate checks the field values on IssuanceExpiryCapability with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *IssuanceExpiryCapability) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on IssuanceExpiryCapability with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// IssuanceExpiryCapabilityMultiError, or nil if none found.
+func (m *IssuanceExpiryCapability) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *IssuanceExpiryCapability) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetMin()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
+					field:  "Min",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
+					field:  "Min",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetMin()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return IssuanceExpiryCapabilityValidationError{
+				field:  "Min",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetMax()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
+					field:  "Max",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
+					field:  "Max",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetMax()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return IssuanceExpiryCapabilityValidationError{
+				field:  "Max",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return IssuanceExpiryCapabilityMultiError(errors)
+	}
+
+	return nil
+}
+
+// IssuanceExpiryCapabilityMultiError is an error wrapping multiple validation
+// errors returned by IssuanceExpiryCapability.ValidateAll() if the designated
+// constraints aren't met.
+type IssuanceExpiryCapabilityMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m IssuanceExpiryCapabilityMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m IssuanceExpiryCapabilityMultiError) AllErrors() []error { return m }
+
+// IssuanceExpiryCapabilityValidationError is the validation error returned by
+// IssuanceExpiryCapability.Validate if the designated constraints aren't met.
+type IssuanceExpiryCapabilityValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e IssuanceExpiryCapabilityValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e IssuanceExpiryCapabilityValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e IssuanceExpiryCapabilityValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e IssuanceExpiryCapabilityValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e IssuanceExpiryCapabilityValidationError) ErrorName() string {
+	return "IssuanceExpiryCapabilityValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e IssuanceExpiryCapabilityValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sIssuanceExpiryCapability.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = IssuanceExpiryCapabilityValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = IssuanceExpiryCapabilityValidationError{}
+
 // Validate checks the field values on ConnectorCapabilities with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -1202,6 +1705,547 @@ var _ interface {
 	ErrorName() string
 } = ConnectorCapabilitiesValidationError{}
 
+// Validate checks the field values on CapabilityPermission with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CapabilityPermission) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CapabilityPermission with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CapabilityPermissionMultiError, or nil if none found.
+func (m *CapabilityPermission) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CapabilityPermission) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Permission
+
+	if len(errors) > 0 {
+		return CapabilityPermissionMultiError(errors)
+	}
+
+	return nil
+}
+
+// CapabilityPermissionMultiError is an error wrapping multiple validation
+// errors returned by CapabilityPermission.ValidateAll() if the designated
+// constraints aren't met.
+type CapabilityPermissionMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CapabilityPermissionMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CapabilityPermissionMultiError) AllErrors() []error { return m }
+
+// CapabilityPermissionValidationError is the validation error returned by
+// CapabilityPermission.Validate if the designated constraints aren't met.
+type CapabilityPermissionValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CapabilityPermissionValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CapabilityPermissionValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CapabilityPermissionValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CapabilityPermissionValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CapabilityPermissionValidationError) ErrorName() string {
+	return "CapabilityPermissionValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CapabilityPermissionValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCapabilityPermission.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CapabilityPermissionValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CapabilityPermissionValidationError{}
+
+// Validate checks the field values on CapabilityPermissions with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CapabilityPermissions) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CapabilityPermissions with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CapabilityPermissionsMultiError, or nil if none found.
+func (m *CapabilityPermissions) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CapabilityPermissions) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetPermissions() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CapabilityPermissionsValidationError{
+						field:  fmt.Sprintf("Permissions[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CapabilityPermissionsValidationError{
+						field:  fmt.Sprintf("Permissions[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CapabilityPermissionsValidationError{
+					field:  fmt.Sprintf("Permissions[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return CapabilityPermissionsMultiError(errors)
+	}
+
+	return nil
+}
+
+// CapabilityPermissionsMultiError is an error wrapping multiple validation
+// errors returned by CapabilityPermissions.ValidateAll() if the designated
+// constraints aren't met.
+type CapabilityPermissionsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CapabilityPermissionsMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CapabilityPermissionsMultiError) AllErrors() []error { return m }
+
+// CapabilityPermissionsValidationError is the validation error returned by
+// CapabilityPermissions.Validate if the designated constraints aren't met.
+type CapabilityPermissionsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CapabilityPermissionsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CapabilityPermissionsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CapabilityPermissionsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CapabilityPermissionsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CapabilityPermissionsValidationError) ErrorName() string {
+	return "CapabilityPermissionsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CapabilityPermissionsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCapabilityPermissions.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CapabilityPermissionsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CapabilityPermissionsValidationError{}
+
+// Validate checks the field values on OptInRequired with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *OptInRequired) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OptInRequired with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in OptInRequiredMultiError, or
+// nil if none found.
+func (m *OptInRequired) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OptInRequired) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return OptInRequiredMultiError(errors)
+	}
+
+	return nil
+}
+
+// OptInRequiredMultiError is an error wrapping multiple validation errors
+// returned by OptInRequired.ValidateAll() if the designated constraints
+// aren't met.
+type OptInRequiredMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OptInRequiredMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OptInRequiredMultiError) AllErrors() []error { return m }
+
+// OptInRequiredValidationError is the validation error returned by
+// OptInRequired.Validate if the designated constraints aren't met.
+type OptInRequiredValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OptInRequiredValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OptInRequiredValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OptInRequiredValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OptInRequiredValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OptInRequiredValidationError) ErrorName() string { return "OptInRequiredValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OptInRequiredValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOptInRequired.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OptInRequiredValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OptInRequiredValidationError{}
+
+// Validate checks the field values on Deprecated with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *Deprecated) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Deprecated with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in DeprecatedMultiError, or
+// nil if none found.
+func (m *Deprecated) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Deprecated) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return DeprecatedMultiError(errors)
+	}
+
+	return nil
+}
+
+// DeprecatedMultiError is an error wrapping multiple validation errors
+// returned by Deprecated.ValidateAll() if the designated constraints aren't met.
+type DeprecatedMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m DeprecatedMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m DeprecatedMultiError) AllErrors() []error { return m }
+
+// DeprecatedValidationError is the validation error returned by
+// Deprecated.Validate if the designated constraints aren't met.
+type DeprecatedValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e DeprecatedValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e DeprecatedValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e DeprecatedValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e DeprecatedValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e DeprecatedValidationError) ErrorName() string { return "DeprecatedValidationError" }
+
+// Error satisfies the builtin error interface
+func (e DeprecatedValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sDeprecated.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = DeprecatedValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = DeprecatedValidationError{}
+
+// Validate checks the field values on SkipSyncAnomalyDetection with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SkipSyncAnomalyDetection) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SkipSyncAnomalyDetection with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SkipSyncAnomalyDetectionMultiError, or nil if none found.
+func (m *SkipSyncAnomalyDetection) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SkipSyncAnomalyDetection) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return SkipSyncAnomalyDetectionMultiError(errors)
+	}
+
+	return nil
+}
+
+// SkipSyncAnomalyDetectionMultiError is an error wrapping multiple validation
+// errors returned by SkipSyncAnomalyDetection.ValidateAll() if the designated
+// constraints aren't met.
+type SkipSyncAnomalyDetectionMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SkipSyncAnomalyDetectionMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SkipSyncAnomalyDetectionMultiError) AllErrors() []error { return m }
+
+// SkipSyncAnomalyDetectionValidationError is the validation error returned by
+// SkipSyncAnomalyDetection.Validate if the designated constraints aren't met.
+type SkipSyncAnomalyDetectionValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SkipSyncAnomalyDetectionValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SkipSyncAnomalyDetectionValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SkipSyncAnomalyDetectionValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SkipSyncAnomalyDetectionValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SkipSyncAnomalyDetectionValidationError) ErrorName() string {
+	return "SkipSyncAnomalyDetectionValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e SkipSyncAnomalyDetectionValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSkipSyncAnomalyDetection.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SkipSyncAnomalyDetectionValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SkipSyncAnomalyDetectionValidationError{}
+
 // Validate checks the field values on ResourceTypeCapability with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -1252,6 +2296,70 @@ func (m *ResourceTypeCapability) validate(all bool) error {
 			}
 		}
 	}
+
+	if all {
+		switch v := interface{}(m.GetPermissions()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceTypeCapabilityValidationError{
+					field:  "Permissions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceTypeCapabilityValidationError{
+					field:  "Permissions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetPermissions()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceTypeCapabilityValidationError{
+				field:  "Permissions",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for OptInRequired
+
+	// no validation rules for SkipSyncAnomalyDetection
+
+	if all {
+		switch v := interface{}(m.GetCredentialIssue()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceTypeCapabilityValidationError{
+					field:  "CredentialIssue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceTypeCapabilityValidationError{
+					field:  "CredentialIssue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCredentialIssue()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceTypeCapabilityValidationError{
+				field:  "CredentialIssue",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Deprecated
 
 	if len(errors) > 0 {
 		return ResourceTypeCapabilityMultiError(errors)
@@ -1731,6 +2839,8 @@ func (m *ConnectorServiceValidateResponse) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for SdkVersion
 
 	if len(errors) > 0 {
 		return ConnectorServiceValidateResponseMultiError(errors)

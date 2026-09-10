@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"sync"
@@ -24,8 +25,11 @@ import (
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
+	"github.com/conductorone/baton-sdk/pkg/bid"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	utls2 "github.com/conductorone/baton-sdk/pkg/utls"
 )
@@ -49,6 +53,38 @@ type connectorClient struct {
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
+
+	sessionStoreSetter sessions.SetSessionStore // this is the session store server
+}
+
+var _ sessions.SetSessionStore = (*connectorClient)(nil)
+var _ SetSessionStoreSetter = (*connectorClient)(nil)
+
+type SetSessionStoreSetter interface {
+	SetSessionStoreSetter(setsessionStoreSetter sessions.SetSessionStore)
+}
+
+func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetSessionStore) {
+	c.sessionStoreSetter = sessionStoreSetter
+}
+
+func (c *connectorClient) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
+	if c.sessionStoreSetter == nil {
+		// Demoted from Warn to Debug: this path is the normal case for
+		// any connector that didn't opt into session storage (i.e.,
+		// wrapper.run never set cw.SessionServer to non-nil, so
+		// SetSessionStoreSetter received nil at startup). The syncer
+		// still calls SetSessionStore unconditionally on every sync, so
+		// at Warn level this fires once per sync per non-session-store
+		// connector — pure noise that masked real warnings downstream.
+		// Debug keeps the "you forgot to wire this" signal available for
+		// developers running at debug level without polluting prod logs.
+		// See https://github.com/ConductorOne/baton-sdk/issues/907.
+		l := ctxzap.Extract(ctx)
+		l.Debug("connectorClient's session store is nil — connector did not opt into session storage")
+		return
+	}
+	c.sessionStoreSetter.SetSessionStore(ctx, store)
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -56,23 +92,34 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server                  types.ConnectorServer
-	client                  types.ConnectorClient
-	serverStdin             io.WriteCloser
-	conn                    *grpc.ClientConn
-	provisioningEnabled     bool
-	ticketingEnabled        bool
-	fullSyncDisabled        bool
-	targetedSyncResourceIDs []string
+	server                types.ConnectorServer
+	client                types.ConnectorClient
+	serverStdin           io.WriteCloser
+	conn                  *grpc.ClientConn
+	provisioningEnabled   bool
+	ticketingEnabled      bool
+	fullSyncDisabled      bool
+	targetedSyncResources []*connectorV2.Resource
+	sessionStoreEnabled   bool
+	syncResourceTypeIDs   []string
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
 
 	now func() time.Time
+
+	SessionServer sessions.SetSessionStore
 }
 
 type Option func(ctx context.Context, w *wrapper) error
+
+func WithSessionStoreEnabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.sessionStoreEnabled = true
+		return nil
+	}
+}
 
 func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {
 	return func(ctx context.Context, w *wrapper) error {
@@ -117,9 +164,24 @@ func WithTicketingEnabled() Option {
 	}
 }
 
-func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
+func WithTargetedSyncResources(resourceIDs []string) Option {
 	return func(ctx context.Context, w *wrapper) error {
-		w.targetedSyncResourceIDs = resourceIDs
+		resources := make([]*connectorV2.Resource, 0, len(resourceIDs))
+		for _, resourceId := range resourceIDs {
+			r, err := bid.ParseResourceBid(resourceId)
+			if err != nil {
+				return err
+			}
+			resources = append(resources, r)
+		}
+		w.targetedSyncResources = resources
+		return nil
+	}
+}
+
+func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.syncResourceTypeIDs = resourceTypeIDs
 		return nil
 	}
 }
@@ -154,7 +216,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		return err
 	}
 
-	tlsConfig, err := utls2.ListenerConfig(ctx, serverCfg.Credential)
+	tlsConfig, err := utls2.ListenerConfig(ctx, serverCfg.GetCredential())
 	if err != nil {
 		return err
 	}
@@ -175,7 +237,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		)),
 	)
 
-	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
+	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.GetRateLimiterConfig())
 	if err != nil {
 		return err
 	}
@@ -198,14 +260,45 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 
 	listenPort, listener, err := cw.setupListener(ctx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to setup listener: %w", err)
+	}
+	var sessionListenerPort uint32
+	if cw.sessionStoreEnabled {
+		var sessionListener net.Listener
+		sessionListenerPort, sessionListener, err = cw.setupSessionListener(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to setup session listener: %w", err)
+		}
+
+		tlsConfig, err := utls2.ListenerConfig(ctx, serverCred)
+		if err != nil {
+			_ = sessionListener.Close()
+			return 0, fmt.Errorf("failed to create session listener config: %w", err)
+		}
+
+		// TODO(kans): block until we send a request or something/error handling in general.
+		l.Info("starting session store server")
+		server := session.NewGRPCSessionServer()
+		cw.SessionServer = server
+		go func() {
+			defer sessionListener.Close()
+			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server,
+				grpc.Creds(credentials.NewTLS(tlsConfig)),
+				grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
+			)
+			if serverErr != nil {
+				l.Error("failed to create session store server", zap.Error(serverErr))
+				return
+			}
+		}()
 	}
 
-	serverCfg, err := proto.Marshal(&connectorwrapperV1.ServerConfig{
-		Credential:        serverCred,
-		RateLimiterConfig: cw.rlCfg,
-		ListenPort:        listenPort,
-	})
+	serverCfg, err := proto.Marshal(connectorwrapperV1.ServerConfig_builder{
+		Credential:             serverCred,
+		RateLimiterConfig:      cw.rlCfg,
+		ListenPort:             listenPort,
+		SessionStoreListenPort: sessionListenerPort,
+	}.Build())
 	if err != nil {
 		return 0, err
 	}
@@ -221,7 +314,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		return 0, err
 	}
 
-	cmd := exec.CommandContext(ctx, arg0, args...)
+	cmd := exec.CommandContext(ctx, arg0, args...) // #nosec G702 -- arg0 is the current executable path; args are passed directly without a shell.
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	// Make the server config available via stdin
@@ -248,10 +341,24 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	go func() {
 		waitErr := cmd.Wait()
 		if waitErr != nil {
+			// When the parent context is cancelled during normal shutdown,
+			// exec.CommandContext terminates the child process. Treat that
+			// exit as expected instead of logging it as an unexpected error.
+			errIsExpected := ctx.Err() != nil
+			if errIsExpected {
+				l.Debug("connector service quit expectedly", zap.Error(waitErr))
+				closeErr := cw.Close()
+				if closeErr != nil {
+					l.Error("error closing connector wrapper", zap.Error(closeErr))
+				}
+				os.Exit(0)
+				return
+			}
+
 			l.Error("connector service quit unexpectedly", zap.Error(waitErr))
-			waitErr = cw.Close()
-			if waitErr != nil {
-				l.Error("error closing connector wrapper", zap.Error(waitErr))
+			closeErr := cw.Close()
+			if closeErr != nil {
+				l.Error("error closing connector wrapper", zap.Error(closeErr))
 			}
 			os.Exit(1)
 		}
@@ -303,11 +410,11 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	var dialErr error
 	var conn *grpc.ClientConn
 	for {
-		conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
+		conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still for compatibility
 			ctx,
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
-			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
+			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still for compatibility
 			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 				otelgrpc.WithPropagators(
@@ -331,8 +438,11 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	}
 
 	cw.conn = conn
-	cw.client = NewConnectorClient(ctx, cw.conn)
-	return cw.client, nil
+	client := NewConnectorClient(ctx, cw.conn)
+	client.SetSessionStoreSetter(cw.SessionServer)
+	cw.client = client
+
+	return client, nil
 }
 
 // Close shuts down the grpc server and closes the connection.
@@ -414,7 +524,7 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 
 // NewConnectorClient takes a grpc.ClientConnInterface and returns an implementation of the ConnectorClient interface.
 // It does not check that the connection actually supports the services.
-func NewConnectorClient(ctx context.Context, cc grpc.ClientConnInterface) types.ConnectorClient {
+func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) *connectorClient {
 	return &connectorClient{
 		ResourceTypesServiceClient:     connectorV2.NewResourceTypesServiceClient(cc),
 		ResourcesServiceClient:         connectorV2.NewResourcesServiceClient(cc),

@@ -2,11 +2,16 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -20,12 +25,21 @@ type lambdaTransport struct {
 }
 
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
-	payload, err := req.MarshalJSON()
+	payload, frameOnly, err := req.marshalPayload()
 	if err != nil {
 		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %w", err)
 	}
+	if frameOnly != nil {
+		ctxzap.Extract(ctx).Warn(
+			"lambda_transport: request has no legacy encoding, sending v2 frame only; a connector on a pre-frame SDK cannot process this call",
+			zap.String("method", req.Method()),
+			zap.String("function_name", l.functionName),
+			zap.NamedError("legacy_encoding_error", frameOnly),
+		)
+	}
 
 	input := &lambda.InvokeInput{
+		LogType:      types.LogTypeTail,
 		FunctionName: aws.String(l.functionName),
 		Payload:      payload,
 	}
@@ -33,12 +47,33 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 	// Invoke the Lambda function.
 	invokeResp, err := l.lambdaClient.Invoke(ctx, input)
 	if err != nil {
+		if isTransientNetworkError(err) {
+			return nil, status.Errorf(codes.Unavailable, "lambda_transport: transient network error invoking function: %s", err)
+		}
 		return nil, fmt.Errorf("lambda_transport: failed to invoke lambda function: %w", err)
 	}
 
 	// Check if the function returned an error.
 	if invokeResp.FunctionError != nil {
-		return nil, fmt.Errorf("lambda_transport: function returned error: %v", *invokeResp.FunctionError)
+		logSummary := ""
+		if invokeResp.LogResult != nil {
+			decodedLog, err := base64.StdEncoding.DecodeString(*invokeResp.LogResult)
+			if err == nil {
+				logSummary = string(decodedLog)
+			}
+		}
+
+		// Classify the failure from the data the invoke already returned: the
+		// tail log's REPORT line, the error payload, and FunctionError. This is
+		// what makes a platform out-of-memory or timeout kill identifiable
+		// without CloudWatch access, and it is returned as a typed error so
+		// callers can log the structured fields instead of scraping strings.
+		return nil, classifyLambdaFailure(
+			*invokeResp.FunctionError,
+			invokeResp.StatusCode,
+			invokeResp.Payload,
+			logSummary,
+		)
 	}
 
 	resp := &Response{}
@@ -73,9 +108,18 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 		return status.Errorf(codes.Unknown, "args and reply must satisfy proto.Message")
 	}
 
-	// TODO(morgabra): Should we do some of this stuff? (e.g. detect ctx deadline and set grpc-timeout, etc?)
-	// https://github.com/grpc/grpc-go/blob/9dc22c029c2592b5b6235d9ef6f14d62ecd6a509/internal/transport/http2_client.go#L541
 	md, _ := metadata.FromOutgoingContext(ctx)
+
+	// Propagate the context deadline to the server via the grpc-timeout header,
+	// mirroring grpc-go's HTTP/2 transport behavior.
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout := time.Until(deadline)
+		if timeout <= 0 {
+			return status.Errorf(codes.DeadlineExceeded, "context deadline exceeded before invoking method %s", method)
+		}
+		md = md.Copy()
+		md.Set("grpc-timeout", encodeTimeout(timeout))
+	}
 
 	treq, err := NewRequest(method, req, md)
 	if err != nil {

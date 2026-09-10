@@ -3,6 +3,7 @@ package c1api
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -12,6 +13,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type actionListSchemasTaskHelpers interface {
@@ -26,8 +28,8 @@ type actionListSchemasTaskHandler struct {
 
 func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionListSchemasTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -36,9 +38,13 @@ func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	if t == nil {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action list schemas task is nil"))
 	}
-	resp, err := cc.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{
+	reqBuilder := v2.ListActionSchemasRequest_builder{
 		Annotations: t.GetAnnotations(),
-	})
+	}
+	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
+		reqBuilder.ResourceTypeId = resourceTypeID
+	}
+	resp, err := cc.ListActionSchemas(ctx, reqBuilder.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
@@ -67,8 +73,8 @@ type actionGetSchemaTaskHandler struct {
 
 func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionGetSchemaTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -78,10 +84,10 @@ func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action name required"))
 	}
 
-	resp, err := cc.GetActionSchema(ctx, &v2.GetActionSchemaRequest{
+	resp, err := cc.GetActionSchema(ctx, v2.GetActionSchemaRequest_builder{
 		Name:        t.GetName(),
 		Annotations: t.GetAnnotations(),
-	})
+	}.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
@@ -110,8 +116,8 @@ type actionInvokeTaskHandler struct {
 
 func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionInvokeTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -120,20 +126,38 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	if t == nil || t.GetName() == "" {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action name required"))
 	}
-	if t.GetArgs() == nil {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("args required"))
-	}
 
-	resp, err := cc.InvokeAction(ctx, &v2.InvokeActionRequest{
+	reqBuilder := v2.InvokeActionRequest_builder{
 		Name:        t.GetName(),
 		Args:        t.GetArgs(),
 		Annotations: t.GetAnnotations(),
-	})
+	}
+	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
+		reqBuilder.ResourceTypeId = resourceTypeID
+	}
+	resp, err := cc.InvokeAction(ctx, reqBuilder.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
 	l.Debug("ActionInvoke response", zap.Any("resp", resp))
+
+	// Check if the action itself failed and propagate the error
+	if resp.GetStatus() == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		errMsg := "action failed"
+		if resp.GetResponse() != nil && resp.GetResponse().GetFields() != nil {
+			if errField, ok := resp.GetResponse().GetFields()["error"]; ok {
+				errMsg = errField.GetStringValue()
+			}
+		}
+		l.Error("ActionInvoke failed",
+			zap.String("error", errMsg),
+			zap.String("action_id", resp.GetId()),
+			zap.String("action_name", resp.GetName()),
+			zap.Stringer("status", resp.GetStatus()),
+		)
+		return c.helpers.FinishTask(ctx, resp, nil, fmt.Errorf("%s", errMsg))
+	}
 
 	return c.helpers.FinishTask(ctx, resp, nil, nil)
 }
@@ -157,8 +181,8 @@ type actionStatusTaskHandler struct {
 
 func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionStatusTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -168,16 +192,16 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action id required"))
 	}
 
-	resp, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
+	resp, err := cc.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{
 		Name:        t.GetName(),
 		Id:          t.GetId(),
 		Annotations: t.GetAnnotations(),
-	})
+	}.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
-	l.Debug("ActionInvoke response", zap.Any("resp", resp))
+	l.Debug("ActionStatus response", zap.Any("resp", resp))
 
 	return c.helpers.FinishTask(ctx, resp, nil, nil)
 }

@@ -12,6 +12,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type getTicketTaskHelpers interface {
@@ -26,8 +27,8 @@ type getTicketTaskHandler struct {
 
 func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "getTicketTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -38,9 +39,9 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get ticket task"), ErrTaskNonRetryable))
 	}
 
-	ticket, err := cc.GetTicket(ctx, &v2.TicketsServiceGetTicketRequest{
+	ticket, err := cc.GetTicket(ctx, v2.TicketsServiceGetTicketRequest_builder{
 		Id: t.GetTicketId(),
-	})
+	}.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
@@ -49,14 +50,14 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.Join(errors.New("connector returned empty ticket"), ErrTaskNonRetryable))
 	}
 
-	resp := &v2.TicketsServiceGetTicketResponse{
+	resp := v2.TicketsServiceGetTicketResponse_builder{
 		Ticket: ticket.GetTicket(),
-	}
+	}.Build()
 
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	respAnnos.Merge(t.GetAnnotations()...)
 
-	resp.Annotations = respAnnos
+	resp.SetAnnotations(respAnnos)
 
 	l.Debug("GetTicket response", zap.Any("resp", resp))
 

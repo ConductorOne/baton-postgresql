@@ -1,9 +1,11 @@
 package field
 
 import (
+	"os"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"golang.org/x/term"
 )
 
 const (
@@ -13,7 +15,24 @@ const (
 	OtelCollectorEndpointTLSInsecureFieldName = "otel-collector-endpoint-tls-insecure"
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
+
+	// LogEventLogFieldName is the name of the flag that redirects logging to
+	// the Windows event log. The field is only registered on Windows builds
+	// (see defaults_windows.go), so the flag does not exist on other platforms.
+	LogEventLogFieldName = "log-event-log"
+
+	// TaskConcurrencySchemaDefault is the configured default for [TaskConcurrencyField].
+	TaskConcurrencySchemaDefault = 3
 )
+
+func defaultLogFormat() any {
+	// If stdout is a TTY, use console format, otherwise use JSON
+
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		return logging.LogFormatConsole
+	}
+	return logging.LogFormatJSON
+}
 
 var (
 	createTicketField           = BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket"), WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -24,7 +43,11 @@ var (
 	ListTicketSchemasField = BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	provisioningField      = BoolField("provisioning", WithShortHand("p"), WithDescription("This must be set in order for provisioning actions to be enabled"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
-	TicketingField = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	TicketingField = BoolField("ticketing",
+		WithDisplayName("Enable external ticket provisioning"),
+		WithDescription("This must be set to enable ticketing support"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	c1zTmpDirField = StringField("c1z-temp-dir", WithHidden(true), WithDescription("The directory to store temporary files in. It must exist, "+
 		"and write access is required. Defaults to the OS temporary directory."), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	clientIDField             = StringField("client-id", WithDescription("The client ID used to authenticate with ConductorOne"), WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -35,6 +58,12 @@ var (
 		WithHidden(true),
 		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
+	createAccountResourceTypeField = StringField("create-account-resource-type",
+		WithHidden(true),
+		WithDescription("The resource type ID of the account to create"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
 	deleteResourceField     = StringField("delete-resource", WithHidden(true), WithDescription("The id of the resource to delete"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	deleteResourceTypeField = StringField("delete-resource-type", WithHidden(true), WithDescription("The type of the resource to delete"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	eventFeedField          = StringField("event-feed", WithHidden(true), WithDescription("Read feed events to stdout"), WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -45,6 +74,11 @@ var (
 		WithDescription("The start time of the event feed to read events from"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	eventFeedCursorField = StringField("event-feed-cursor",
+		WithHidden(true),
+		WithDescription("The cursor to use for resuming the event feed from a specific point"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	fileField = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	grantEntitlementField = StringField("grant-entitlement", WithHidden(true), WithDescription("The id of the entitlement to grant to the supplied principal"),
@@ -53,8 +87,9 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	grantPrincipalTypeField = StringField("grant-principal-type", WithHidden(true), WithDescription("The resource type of the principal to grant the entitlement to"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
-	logFormatField = StringField("log-format", WithDefaultValue(logging.LogFormatJSON), WithDescription("The output format for logs: json, console"),
+	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logOutputPathField     = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -65,27 +100,42 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logLevelField = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"), WithPersistent(true),
 		WithExportTarget(ExportTargetOps))
-	skipFullSync            = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
-	targetedSyncResourceIDs = StringSliceField("sync-resources", WithDescription("The resource IDs to sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
-	diffSyncsField          = BoolField(
-		"diff-syncs",
-		WithDescription("Create a new partial SyncID from a base and applied sync."),
-		WithHidden(true),
+	logLevelDebugExpiresAtField = StringField("log-level-debug-expires-at",
+		WithDescription("The timestamp indicating when debug-level logging should expire"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps))
+	skipFullSync     = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	WorkerCountField = IntField("workers",
+		WithDescription("The number of sync workers to use. -1 for auto-detect, 0 for sequential, >0 for parallel"),
+		WithDefaultValue(0),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+	ParallelSyncField         = BoolField("parallel-sync", WithDescription("Deprecated: use --workers instead."), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	targetedSyncResourceIDs   = StringSliceField("sync-resources", WithDescription("The resource IDs to sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	skipEntitlementsAndGrants = BoolField("skip-entitlements-and-grants",
+		WithDescription("This must be set to skip syncing of entitlements and grants"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
-	diffSyncsBaseSyncField = StringField("base-sync-id",
-		WithDescription("The base sync to diff from."),
-		WithHidden(true),
+
+	authMethod = StringField(
+		"auth-method",
+		WithDescription(""),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
-	diffSyncsAppliedSyncField = StringField("applied-sync-id",
-		WithDescription("The sync to show diffs when applied to the base sync."),
-		WithHidden(true),
+
+	skipGrants = BoolField("skip-grants",
+		WithDescription("This must be set to skip syncing of grants only (entitlements will still be synced)"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
+		WithHidden(true),
 	)
+
+	syncResourceTypeIDs = StringSliceField("sync-resource-types",
+		WithDescription("The resource type IDs to sync"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 
 	compactSyncsField = BoolField("compact-syncs",
 		WithDescription("Provide a list of sync files to compact into a single c1z file and sync ID."),
@@ -108,6 +158,66 @@ var (
 	compactSyncIDsField = StringSliceField("compact-sync-ids",
 		WithDescription("A comma-separated list of file ids to sync from. Must match sync IDs from each file provided. Order matters."),
 		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	invokeActionField = StringField("invoke-action",
+		WithDescription("The name of the custom action to invoke"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeActionArgsField = StringField("invoke-action-args",
+		WithHidden(true),
+		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
+		WithDefaultValue("{}"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeActionResourceTypeField = StringField("invoke-action-resource-type",
+		WithHidden(true),
+		WithDescription("The resource type ID for resource-scoped actions"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	listActionSchemasField = BoolField("list-action-schemas",
+		WithHidden(true),
+		WithDescription("List available action schemas"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	listActionSchemasResourceTypeField = StringField("list-action-schemas-resource-type",
+		WithHidden(true),
+		WithDescription("Filter action schemas by resource type ID"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	listResourceActionsField = StringField("list-resource-actions",
+		WithDescription("The resource type ID to list actions for"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	invokeResourceActionField = StringField("invoke-resource-action",
+		WithDescription("The name of the action to invoke"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeResourceActionTypeField = StringField("invoke-resource-action-resource-type",
+		WithDescription("The resource type of the action to invoke"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeResourceActionArgsField = StringField("invoke-resource-action-args",
+		WithHidden(true),
+		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
+		WithDefaultValue("{}"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
@@ -137,6 +247,25 @@ var (
 		WithExportTarget(ExportTargetNone))
 	externalResourceEntitlementIdFilter = StringField("external-resource-entitlement-id-filter",
 		WithDescription("The entitlement that external users, groups must have access to sync external baton resources"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+	externalResourceTraitsField = StringSliceField("external-resource-traits",
+		WithDescription("Resource type traits (e.g. \"user\", \"group\", \"app\") to sync and match from the external resource c1z. "+
+			"When unset the matcher falls back to user and group; passing this flag replaces the full set rather than adding to it."),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+
+	// KeepPreviousSyncC1ZField is the CUSTOMER's runtime half of the
+	// service-mode ETag-replay opt-in: keep the last successfully
+	// uploaded c1z on disk as a spare and feed it to the next full sync
+	// as the previous-sync replay source. It only takes effect on
+	// connectors whose author also declared ETag-replay support at build
+	// time (connectorrunner.WithKeepPreviousSyncC1Z) — both are
+	// required. Costs one c1z of local disk.
+	KeepPreviousSyncC1ZField = BoolField("keep-previous-sync-c1z",
+		WithDescription("Keep the previously synced c1z on disk to enable ETag replay across service-mode syncs "+
+			"(requires a connector that supports ETag replay; costs one c1z of local disk)"),
+		WithDefaultValue(false),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
 
@@ -170,6 +299,65 @@ var (
 		WithRequired(true),
 		WithDescription("The expected audience claim in the JWT (optional)"),
 		WithExportTarget(ExportTargetNone))
+
+	ServerSessionStoreMaximumSizeField = IntField("session-store-maximum-size",
+		WithDescription("The maximum size of the local in-memory session store cache in bytes."),
+		WithDefaultValue(1024*1024*15),
+		WithExportTarget(ExportTargetOps),
+		WithHidden(true),
+		WithPersistent(true))
+
+	healthCheckField = BoolField("health-check",
+		WithDescription("Enable the HTTP health check endpoint"),
+		WithDefaultValue(false),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps))
+
+	healthCheckPortField = IntField("health-check-port",
+		WithDescription("Port for the HTTP health check endpoint"),
+		WithDefaultValue(8081),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps))
+
+	healthCheckBindAddressField = StringField("health-check-bind-address",
+		WithDescription("Bind address for health check server (127.0.0.1 for localhost-only)"),
+		WithDefaultValue("127.0.0.1"),
+		WithPersistent(true),
+		WithHidden(true),
+		WithExportTarget(ExportTargetOps))
+
+	HttpTimeoutField = IntField("http-timeout-seconds",
+		WithDescription("HTTP client timeout in seconds (max 1800)"),
+		WithDefaultValue(300),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(1800)
+		}))
+
+	// StorageEngineField selects the dotc1z storage engine for sync tasks.
+	// Empty uses the baton-sdk default (pebble for new files).
+	StorageEngineField = StringField("storage-engine",
+		WithDescription("The storage engine to use when opening the sync c1z file: sqlite or pebble. "+
+			"Defaults to pebble when unset."),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+		WithString(func(r *StringRuler) {
+			r.In([]string{"", "sqlite", "pebble"})
+		}))
+
+	// TaskConcurrencyField limits concurrent Baton task execution in the runner
+	// (service mode). Semantics match [WorkerCountField] / sync worker parallelism.
+	TaskConcurrencyField = IntField("task-concurrency",
+		WithDescription("The number of Baton tasks to run concurrently in service mode. "+
+			"Tasks may include sync, grant, revoke, and more. "+
+			"Minimum value is 1, maximum value is 100."),
+		WithDefaultValue(TaskConcurrencySchemaDefault),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(100)
+		}),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 )
 
 func LambdaServerFields() []SchemaField {
@@ -187,7 +375,9 @@ func LambdaServerFields() []SchemaField {
 var LambdaServerRelationships = make([]SchemaFieldRelationship, 0)
 
 // DefaultFields list the default fields expected in every single connector.
-var DefaultFields = []SchemaField{
+// platformDefaultFields (defined per-platform) holds additional fields that
+// only exist on some platforms, e.g. the Windows event log flag.
+var DefaultFields = append([]SchemaField{
 	createTicketField,
 	bulkCreateTicketField,
 	bulkTicketTemplatePathField,
@@ -201,33 +391,51 @@ var DefaultFields = []SchemaField{
 	createAccountEmailField,
 	createAccountLoginField,
 	createAccountProfileField,
+	createAccountResourceTypeField,
 	deleteResourceField,
 	deleteResourceTypeField,
 	eventFeedField,
 	eventFeedIdField,
 	eventFeedStartAtField,
+	eventFeedCursorField,
 	fileField,
 	grantEntitlementField,
 	grantPrincipalField,
 	grantPrincipalTypeField,
 	logFormatField,
+	logOutputPathField,
 	revokeGrantField,
 	rotateCredentialsField,
 	rotateCredentialsTypeField,
 	ticketIDField,
 	ticketTemplatePathField,
 	logLevelField,
+	logLevelDebugExpiresAtField,
 	skipFullSync,
 	targetedSyncResourceIDs,
+	syncResourceTypeIDs,
+	skipEntitlementsAndGrants,
+	skipGrants,
 	externalResourceC1ZField,
 	externalResourceEntitlementIdFilter,
-	diffSyncsField,
-	diffSyncsBaseSyncField,
-	diffSyncsAppliedSyncField,
+	externalResourceTraitsField,
+	KeepPreviousSyncC1ZField,
 	compactSyncIDsField,
 	compactFilePathsField,
 	compactOutputDirectoryField,
 	compactSyncsField,
+	invokeActionField,
+	invokeActionArgsField,
+	invokeActionResourceTypeField,
+	listActionSchemasField,
+	listActionSchemasResourceTypeField,
+	listResourceActionsField,
+	invokeResourceActionField,
+	invokeResourceActionTypeField,
+	invokeResourceActionArgsField,
+	ServerSessionStoreMaximumSizeField,
+	WorkerCountField,
+	ParallelSyncField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,
@@ -235,7 +443,17 @@ var DefaultFields = []SchemaField{
 	otelCollectorEndpointTlSInsecure,
 	otelTracingDisabled,
 	otelLoggingDisabled,
-}
+
+	authMethod,
+
+	healthCheckField,
+	healthCheckPortField,
+	healthCheckBindAddressField,
+
+	HttpTimeoutField,
+	StorageEngineField,
+	TaskConcurrencyField,
+}, platformDefaultFields...)
 
 func IsFieldAmongDefaultList(f SchemaField) bool {
 	for _, v := range DefaultFields {

@@ -2,17 +2,26 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/maypok86/otter/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -21,24 +30,87 @@ import (
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	baton_v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/session"
+	"github.com/conductorone/baton-sdk/pkg/tempdir"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	utls2 "github.com/conductorone/baton-sdk/pkg/utls"
 )
 
 const (
 	otelShutdownTimeout = 5 * time.Second
 )
 
+// eventLogEnabledKey marks the context when the user passed --log-event-log.
+// The flag is only registered on Windows; the Windows initLogger reads this
+// value to redirect logging to the Windows event log.
+type eventLogEnabledKey struct{}
+
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
+
+// In one shot & service mode, the child process uses this client to connect to the session store server...
+//
+//	which uses the C1Z for storage.  Unfortunately the C1Z is instantiated well after we fork the child process,
+//	so there is quite a bit of pass through.
+func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
+	return func(_ context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
+		l := ctxzap.Extract(ctx)
+		clientTLSConfig, err := utls2.ClientConfig(ctx, serverCfg.GetCredential())
+		if err != nil {
+			return nil, err
+		}
+		if serverCfg.GetSessionStoreListenPort() == 0 {
+			return &session.NoOpSessionStore{}, nil
+		}
+		// connected, grpc will handle retries for us.
+		dialCtx, canc := context.WithTimeout(ctx, 5*time.Second)
+		defer canc()
+		var dialErr error
+		var conn *grpc.ClientConn
+		for {
+			conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
+				ctx,
+				fmt.Sprintf("127.0.0.1:%d", serverCfg.GetSessionStoreListenPort()),
+				grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
+				grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
+			)
+			if err != nil {
+				dialErr = err
+				select {
+				case <-time.After(time.Millisecond * 500):
+				case <-dialCtx.Done():
+					return nil, dialErr
+				}
+				continue
+			}
+			break
+		}
+
+		client := baton_v1.NewBatonSessionServiceClient(conn)
+		ss, err := session.NewGRPCSessionStore(ctx, client, opt...)
+		if err != nil {
+			err2 := conn.Close()
+			if err2 != nil {
+				l.Error("error closing connection", zap.Error(err2))
+			}
+			return nil, err
+		}
+		return ss, nil
+	}
+}
 
 func MakeMainCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
 	confschema field.Configuration,
-	getconnector GetConnectorFunc[T],
+	getconnector GetConnectorFunc2[T],
 	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
@@ -51,11 +123,22 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 
-		runCtx, err := initLogger(
-			ctx,
-			name,
+		logOpts := []logging.Option{
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+		}
+		logPaths := v.GetStringSlice("log-path")
+		if len(logPaths) > 0 {
+			logOpts = append(logOpts, logging.WithOutputPaths(logPaths))
+		}
+		loggerCtx := ctx
+		if v.GetBool(field.LogEventLogFieldName) {
+			loggerCtx = context.WithValue(loggerCtx, eventLogEnabledKey{}, true)
+		}
+		runCtx, err := initLogger(
+			loggerCtx,
+			name,
+			logOpts...,
 		)
 		if err != nil {
 			return err
@@ -89,8 +172,14 @@ func MakeMainCommand[T field.Configurable](
 			}
 		}
 
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
+		if err != nil {
+			return fmt.Errorf("failed to make configuration: %w", err)
+		}
 		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
+		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
 
@@ -112,6 +201,17 @@ func MakeMainCommand[T field.Configurable](
 			if v.GetBool("skip-full-sync") {
 				opts = append(opts, connectorrunner.WithFullSyncDisabled())
 			}
+			if v.GetBool("health-check") {
+				opts = append(opts, connectorrunner.WithHealthCheck(
+					true,
+					v.GetInt("health-check-port"),
+					v.GetString("health-check-bind-address"),
+				))
+			}
+			if len(v.GetStringSlice("sync-resource-types")) > 0 {
+				opts = append(opts,
+					connectorrunner.WithSyncResourceTypeIDs(v.GetStringSlice("sync-resource-types")))
+			}
 		} else {
 			switch {
 			case v.GetString("grant-entitlement") != "":
@@ -131,7 +231,7 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("revoke-grant"),
 					))
 			case v.GetBool("event-feed"):
-				opts = append(opts, connectorrunner.WithOnDemandEventStream(v.GetString("event-feed-id"), v.GetTime("event-feed-start-at")))
+				opts = append(opts, connectorrunner.WithOnDemandEventStream(v.GetString("event-feed-id"), v.GetTime("event-feed-start-at"), v.GetString("event-feed-cursor")))
 			case v.GetString("create-account-profile") != "":
 				profileMap := v.GetStringMap("create-account-profile")
 				if profileMap == nil {
@@ -169,6 +269,7 @@ func MakeMainCommand[T field.Configurable](
 						login,
 						email,
 						profile,
+						v.GetString("create-account-resource-type"),
 					))
 			case v.GetString("create-account-login") != "":
 				// should only be here if no create-account-profile is provided, so lets make one.
@@ -186,6 +287,35 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("create-account-login"),
 						v.GetString("create-account-email"),
 						profile,
+						v.GetString("create-account-resource-type"),
+					))
+			case v.GetString("invoke-action") != "":
+				invokeActionArgsStr := v.GetString("invoke-action-args")
+				invokeActionArgs := map[string]any{}
+				if invokeActionArgsStr != "" {
+					err := json.Unmarshal([]byte(invokeActionArgsStr), &invokeActionArgs)
+					if err != nil {
+						return fmt.Errorf("failed to parse invoke-action-args: %w", err)
+					}
+				}
+				invokeActionArgsStruct, err := structpb.NewStruct(invokeActionArgs)
+				if err != nil {
+					return fmt.Errorf("failed to parse invoke-action-args: %w", err)
+				}
+				opts = append(opts,
+					connectorrunner.WithActionsEnabled(),
+					connectorrunner.WithOnDemandInvokeAction(
+						v.GetString("file"),
+						v.GetString("invoke-action"),
+						v.GetString("invoke-action-resource-type"), // Optional resource type for resource-scoped actions
+						invokeActionArgsStruct,
+					))
+			case v.GetBool("list-action-schemas"):
+				opts = append(opts,
+					connectorrunner.WithActionsEnabled(),
+					connectorrunner.WithOnDemandListActionSchemas(
+						v.GetString("file"),
+						v.GetString("list-action-schemas-resource-type"), // Optional resource type filter
 					))
 			case v.GetString("delete-resource") != "":
 				opts = append(opts,
@@ -219,19 +349,6 @@ func MakeMainCommand[T field.Configurable](
 				opts = append(opts,
 					connectorrunner.WithTicketingEnabled(),
 					connectorrunner.WithGetTicket(v.GetString("ticket-id")))
-			case len(v.GetStringSlice("sync-resources")) > 0:
-				opts = append(opts,
-					connectorrunner.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")),
-					connectorrunner.WithOnDemandSync(v.GetString("file")),
-				)
-			case v.GetBool("diff-syncs"):
-				opts = append(opts,
-					connectorrunner.WithDiffSyncs(
-						v.GetString("file"),
-						v.GetString("base-sync-id"),
-						v.GetString("applied-sync-id"),
-					),
-				)
 			case v.GetBool("compact-syncs"):
 				opts = append(opts,
 					connectorrunner.WithSyncCompactor(
@@ -240,18 +357,34 @@ func MakeMainCommand[T field.Configurable](
 						v.GetStringSlice("compact-sync-ids"),
 					),
 				)
-
 			default:
+				if len(v.GetStringSlice("sync-resources")) > 0 {
+					opts = append(opts,
+						connectorrunner.WithTargetedSyncResources(v.GetStringSlice("sync-resources")))
+				}
+				if len(v.GetStringSlice("sync-resource-types")) > 0 {
+					opts = append(opts,
+						connectorrunner.WithSyncResourceTypeIDs(v.GetStringSlice("sync-resource-types")))
+				}
 				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 			}
 		}
 
-		if v.GetString("c1z-temp-dir") != "" {
-			c1zTmpDir := v.GetString("c1z-temp-dir")
+		if v.GetBool(field.ParallelSyncField.GetName()) {
+			opts = append(opts, connectorrunner.WithWorkerCount(-1))
+		}
+
+		workers := v.GetInt(field.WorkerCountField.GetName())
+		if workers != 0 {
+			opts = append(opts, connectorrunner.WithWorkerCount(workers))
+		}
+
+		c1zTmpDir := tempdir.Resolve(v.GetString("c1z-temp-dir"))
+		if c1zTmpDir != "" {
 			if _, err := os.Stat(c1zTmpDir); os.IsNotExist(err) {
 				return fmt.Errorf("the specified c1z temp dir does not exist: %s", c1zTmpDir)
 			}
-			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
+			opts = append(opts, connectorrunner.WithTempDir(c1zTmpDir))
 		}
 
 		if v.GetString("external-resource-c1z") != "" {
@@ -268,12 +401,60 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithExternalResourceEntitlementFilter(externalResourceEntitlementIdFilter))
 		}
 
-		t, err := MakeGenericConfiguration[T](v)
-		if err != nil {
-			return fmt.Errorf("failed to make configuration: %w", err)
+		if traitNames := v.GetStringSlice("external-resource-traits"); len(traitNames) > 0 {
+			traits, err := parseResourceTraits(traitNames)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, connectorrunner.WithExternalResourceTraits(traits...))
 		}
 
-		c, err := getconnector(runCtx, t)
+		// The customer's runtime half of the ETag-replay opt-in
+		// (--keep-previous-sync-c1z / BATON_KEEP_PREVIOUS_SYNC_C1Z).
+		// Only takes effect on connectors whose author also declared the
+		// capability at build time via
+		// connectorrunner.WithKeepPreviousSyncC1Z(); both are required.
+		if v.GetBool(field.KeepPreviousSyncC1ZField.GetName()) {
+			opts = append(opts, connectorrunner.WithKeepPreviousSyncC1ZRuntimeOptIn())
+		}
+
+		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
+
+		if v.GetBool("skip-grants") {
+			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
+		}
+
+		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
+		if httpTimeout <= 0 {
+			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)
+		}
+		httpTimeoutField := field.HttpTimeoutField
+		if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
+			return err
+		}
+		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+
+		storageEngine := v.GetString(field.StorageEngineField.GetName())
+		storageEngineField := field.StorageEngineField
+		if _, err := field.ValidateField(&storageEngineField, storageEngine); err != nil {
+			return err
+		}
+		if storageEngine != "" {
+			opts = append(opts, connectorrunner.WithStorageEngine(c1zstore.Engine(storageEngine)))
+		}
+
+		taskConcurrency := v.GetInt(field.TaskConcurrencyField.GetName())
+		taskConcurrencyField := field.TaskConcurrencyField
+		if _, err := field.ValidateField(&taskConcurrencyField, taskConcurrency); err != nil {
+			return err
+		}
+		opts = append(opts, connectorrunner.WithTaskConcurrency(taskConcurrency))
+
+		// Save the selected authentication method and get the connector.
+		c, err := getconnector(runCtx, t, RunTimeOpts{
+			SelectedAuthMethod:  v.GetString("auth-method"),
+			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+		})
 		if err != nil {
 			return err
 		}
@@ -294,6 +475,28 @@ func MakeMainCommand[T field.Configurable](
 
 		return nil
 	}
+}
+
+// parseResourceTraits maps --external-resource-traits flag values to
+// ResourceType_Trait enum values. Accepts either the bare trait name
+// ("app", case-insensitive) or the canonical proto enum name ("TRAIT_APP").
+func parseResourceTraits(names []string) ([]v2.ResourceType_Trait, error) {
+	traits := make([]v2.ResourceType_Trait, 0, len(names))
+	for _, name := range names {
+		key := strings.ToUpper(strings.TrimSpace(name))
+		if key == "" {
+			continue
+		}
+		if !strings.HasPrefix(key, "TRAIT_") {
+			key = "TRAIT_" + key
+		}
+		val, ok := v2.ResourceType_Trait_value[key]
+		if !ok {
+			return nil, fmt.Errorf("unknown external resource trait %q", name)
+		}
+		traits = append(traits, v2.ResourceType_Trait(val))
+	}
+	return traits, nil
 }
 
 func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields map[string]interface{}) (context.Context, func(context.Context) error, error) {
@@ -326,7 +529,7 @@ func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields
 		otelOpts = append(otelOpts, uotel.WithOtelEndpoint(otelEndpoint, otelTLSCertPath, otelTLSCert))
 	}
 
-	return uotel.InitOtel(context.Background(), otelOpts...)
+	return uotel.InitOtel(ctx, otelOpts...)
 }
 
 func MakeGRPCServerCommand[T field.Configurable](
@@ -334,7 +537,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 	name string,
 	v *viper.Viper,
 	confschema field.Configuration,
-	getconnector GetConnectorFunc[T],
+	getconnector GetConnectorFunc2[T],
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		// NOTE(shackra): bind all the flags (persistent and
@@ -375,60 +578,14 @@ func MakeGRPCServerCommand[T field.Configurable](
 		l := ctxzap.Extract(runCtx)
 		l.Debug("starting grpc server")
 
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-		t, err := MakeGenericConfiguration[T](v)
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
-		c, err := getconnector(runCtx, t)
-		if err != nil {
-			return err
-		}
-
-		var copts []connector.Option
-
-		if v.GetBool("provisioning") {
-			copts = append(copts, connector.WithProvisioningEnabled())
-		}
-
-		if v.GetBool("ticketing") {
-			copts = append(copts, connector.WithTicketingEnabled())
-		}
-
-		if v.GetBool("skip-full-sync") {
-			copts = append(copts, connector.WithFullSyncDisabled())
-		}
-
-		switch {
-		case v.GetString("grant-entitlement") != "":
-			copts = append(copts, connector.WithProvisioningEnabled())
-		case v.GetString("revoke-grant") != "":
-			copts = append(copts, connector.WithProvisioningEnabled())
-		case v.GetString("create-account-profile") != "":
-			copts = append(copts, connector.WithProvisioningEnabled())
-		case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
-			copts = append(copts, connector.WithProvisioningEnabled())
-		case v.GetString("delete-resource") != "" || v.GetString("delete-resource-type") != "":
-			copts = append(copts, connector.WithProvisioningEnabled())
-		case v.GetString("rotate-credentials") != "" || v.GetString("rotate-credentials-type") != "":
-			copts = append(copts, connector.WithProvisioningEnabled())
-		case v.GetBool("create-ticket"):
-			copts = append(copts, connector.WithTicketingEnabled())
-		case v.GetBool("bulk-create-ticket"):
-			copts = append(copts, connector.WithTicketingEnabled())
-		case v.GetBool("list-ticket-schemas"):
-			copts = append(copts, connector.WithTicketingEnabled())
-		case v.GetBool("get-ticket"):
-			copts = append(copts, connector.WithTicketingEnabled())
-		case len(v.GetStringSlice("sync-resources")) > 0:
-			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
-		}
-
-		cw, err := connector.NewWrapper(runCtx, c, copts...)
-		if err != nil {
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
 
@@ -438,6 +595,10 @@ func MakeGRPCServerCommand[T field.Configurable](
 			cfgStr = scn.Text()
 			break
 		}
+		if scn.Err() != nil {
+			return fmt.Errorf("failed to read stdin: %w", scn.Err())
+		}
+
 		cfgBytes, err := base64.StdEncoding.DecodeString(cfgStr)
 		if err != nil {
 			return err
@@ -468,6 +629,91 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
+		clientSecret := v.GetString("client-secret")
+		if clientSecret != "" {
+			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
+			if err != nil {
+				return err
+			}
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
+		}
+
+		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
+		if httpTimeout <= 0 {
+			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)
+		}
+		httpTimeoutField := field.HttpTimeoutField
+		if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
+			return err
+		}
+		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+
+		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
+		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)
+		c, err := getconnector(runCtx, t, RunTimeOpts{
+			SessionStore: NewLazyCachingSessionStore(sessionConstructor, func(otterOptions *otter.Options[string, []byte]) {
+				if sessionStoreMaximumSize <= 0 {
+					otterOptions.MaximumWeight = 0
+				} else {
+					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
+				}
+			}),
+			SelectedAuthMethod:  v.GetString("auth-method"),
+			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+		})
+		if err != nil {
+			return err
+		}
+
+		var copts []connector.Option
+
+		if v.GetBool("provisioning") {
+			copts = append(copts, connector.WithProvisioningEnabled())
+		}
+
+		if v.GetBool("ticketing") {
+			copts = append(copts, connector.WithTicketingEnabled())
+		}
+
+		if v.GetBool("skip-full-sync") {
+			copts = append(copts, connector.WithFullSyncDisabled())
+		}
+
+		if len(v.GetStringSlice("sync-resources")) > 0 {
+			copts = append(copts, connector.WithTargetedSyncResources(v.GetStringSlice("sync-resources")))
+		}
+
+		if len(v.GetStringSlice("sync-resource-types")) > 0 {
+			copts = append(copts, connector.WithSyncResourceTypeIDs(v.GetStringSlice("sync-resource-types")))
+		}
+
+		switch {
+		case v.GetString("grant-entitlement") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("revoke-grant") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("create-account-profile") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("delete-resource") != "" || v.GetString("delete-resource-type") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("rotate-credentials") != "" || v.GetString("rotate-credentials-type") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetBool("create-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("bulk-create-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("list-ticket-schemas"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("get-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		}
+
+		cw, err := connector.NewWrapper(runCtx, c, copts...)
+		if err != nil {
+			return err
+		}
 
 		return cw.Run(runCtx, serverCfg)
 	}
@@ -478,7 +724,8 @@ func MakeCapabilitiesCommand[T field.Configurable](
 	name string,
 	v *viper.Viper,
 	confschema field.Configuration,
-	getconnector GetConnectorFunc[T],
+	getconnector GetConnectorFunc2[T],
+	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		// NOTE(shackra): bind all the flags (persistent and
@@ -500,27 +747,57 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-		t, err := MakeGenericConfiguration[T](v)
+		var c types.ConnectorServer
+
+		// A factory, when provided, supplies the connector for the capabilities command
+		// directly and takes precedence over the default builder and config-path connector.
+		factory, err := connectorrunner.ExtractDefaultCapabilitiesConnectorFactory(ctx, opts...)
 		if err != nil {
-			return fmt.Errorf("failed to make configuration: %w", err)
+			return fmt.Errorf("failed to extract default capabilities connector factory: %w", err)
 		}
 
-		c, err := getconnector(runCtx, t)
-		if err != nil {
-			return err
+		if factory != nil {
+			c, err = factory(runCtx)
+			if err != nil {
+				return fmt.Errorf("failed to build default connector: %w", err)
+			}
+			defer closeIfPossible(runCtx, c)
+		} else {
+			c, err = defaultConnectorBuilder(ctx, opts...)
+			if err != nil {
+				return fmt.Errorf("failed to build default connector: %w", err)
+			}
+
+			if c == nil {
+				readFromPath := true
+				decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+				t, err := MakeGenericConfiguration[T](v, decodeOpts)
+				if err != nil {
+					return fmt.Errorf("failed to make configuration: %w", err)
+				}
+				authMethod := v.GetString("auth-method")
+				// validate required fields and relationship constraints
+				if err := field.Validate(confschema, t, field.WithAuthMethod(authMethod)); err != nil {
+					return err
+				}
+
+				c, err = getconnector(runCtx, t, RunTimeOpts{
+					SelectedAuthMethod:  authMethod,
+					SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+				})
+				if err != nil {
+					return err
+				}
+			}
 		}
 
-		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
-		if err != nil {
-			return err
+		if c == nil {
+			return fmt.Errorf("could not create connector %w", err)
 		}
 
-		if md.Metadata.Capabilities == nil {
-			return fmt.Errorf("connector does not support capabilities")
+		capabilities, err := capabilitiesFromConnector(runCtx, c)
+		if err != nil {
+			return err
 		}
 
 		protoMarshaller := protojson.MarshalOptions{
@@ -529,7 +806,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		}
 
 		a := &anypb.Any{}
-		err = anypb.MarshalFrom(a, md.Metadata.Capabilities, proto.MarshalOptions{Deterministic: true})
+		err = anypb.MarshalFrom(a, capabilities, proto.MarshalOptions{Deterministic: true})
 		if err != nil {
 			return err
 		}
@@ -539,7 +816,15 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		_, err = fmt.Fprint(os.Stdout, string(outBytes))
+		// Re-indent to normalize protojson's non-deterministic whitespace.
+		// protojson uses detrand.Bool() to randomly insert extra spaces after colons;
+		// json.Indent rewrites all whitespace from the token stream, preserving key order.
+		var normalized bytes.Buffer
+		if err := json.Indent(&normalized, outBytes, "", "  "); err != nil {
+			return err
+		}
+
+		_, err = fmt.Fprint(os.Stdout, normalized.String())
 		if err != nil {
 			return err
 		}
@@ -553,10 +838,11 @@ func MakeConfigSchemaCommand[T field.Configurable](
 	name string,
 	v *viper.Viper,
 	confschema field.Configuration,
-	getconnector GetConnectorFunc[T],
+	getconnector GetConnectorFunc2[T],
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		pb, err := json.Marshal(&confschema)
+		// Use MarshalIndent for pretty printing
+		pb, err := json.MarshalIndent(&confschema, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -566,4 +852,62 @@ func MakeConfigSchemaCommand[T field.Configurable](
 		}
 		return nil
 	}
+}
+
+// capabilitiesFromConnector extracts a connector's capabilities, preferring the optional
+// GetCapabilities getter and falling back to GetMetadata().Capabilities otherwise.
+func capabilitiesFromConnector(ctx context.Context, c types.ConnectorServer) (*v2.ConnectorCapabilities, error) {
+	type getter interface {
+		GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error)
+	}
+
+	if getCap, ok := c.(getter); ok {
+		return getCap.GetCapabilities(ctx)
+	}
+
+	md, err := c.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	if !md.GetMetadata().HasCapabilities() {
+		return nil, fmt.Errorf("connector does not support capabilities")
+	}
+
+	return md.GetMetadata().GetCapabilities(), nil
+}
+
+// closeIfPossible closes the connector if it implements a Close method, logging any error.
+func closeIfPossible(ctx context.Context, c types.ConnectorServer) {
+	type closer interface {
+		Close(ctx context.Context) error
+	}
+
+	switch cl := c.(type) {
+	case closer:
+		if err := cl.Close(ctx); err != nil {
+			ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
+		}
+	case io.Closer:
+		if err := cl.Close(); err != nil {
+			ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
+		}
+	}
+}
+
+func defaultConnectorBuilder(ctx context.Context, opts ...connectorrunner.Option) (types.ConnectorServer, error) {
+	defaultConnector, err := connectorrunner.ExtractDefaultConnector(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	if defaultConnector == nil {
+		return nil, nil
+	}
+
+	c, err := connectorbuilder.NewConnector(ctx, defaultConnector)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }

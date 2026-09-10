@@ -40,6 +40,11 @@ func NewClientDatabasesPool(ctx context.Context, dsn string, opts ...ClientOpt) 
 }
 
 func (p *ClientDatabasesPool) Default(ctx context.Context) *Client {
+	// A nil pool is the zero-value connector behind the capabilities
+	// subcommand: its syncers declare themselves and never query.
+	if p == nil {
+		return nil
+	}
 	return p.defaultClientDsn
 }
 

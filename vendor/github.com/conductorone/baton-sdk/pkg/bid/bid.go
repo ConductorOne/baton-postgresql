@@ -100,11 +100,11 @@ func NewBidParseError(bs *bidScanner, msg string, a ...any) *BIDParseError {
 func MakeBid(b BID) (string, error) {
 	switch bType := b.(type) {
 	case *v2.Resource:
-		return makeResourceBid(bType)
+		return MakeResourceBid(bType)
 	case *v2.Entitlement:
-		return makeEntitlementBid(bType)
+		return MakeEntitlementBid(bType)
 	case *v2.Grant:
-		return makeGrantBid(bType)
+		return MakeGrantBid(bType)
 	}
 	return "", NewBidStringError(b, "unknown bid type: %T", b)
 }
@@ -132,8 +132,11 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 	}
 	resourceType := escapeParts(rid.GetResourceType())
 	resource := escapeParts(rid.GetResource())
-	if resourceType == "" || resource == "" {
-		return "", NewBidStringError(r, "resource type or id is empty")
+	if resourceType == "" {
+		return "", NewBidStringError(r, "resource type is empty")
+	}
+	if resource == "" {
+		return "", NewBidStringError(r, "resource id is empty")
 	}
 	prid := r.GetParentResourceId()
 	if prid == nil {
@@ -150,18 +153,18 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 }
 
 func entitlementPartToStr(e *v2.Entitlement) (string, error) {
-	resourcePart, err := resourcePartToStr(e.Resource)
+	resourcePart, err := resourcePartToStr(e.GetResource())
 	if err != nil {
 		return "", err
 	}
-	if e.Slug == "" {
+	if e.GetSlug() == "" {
 		return "", NewBidStringError(e, "entitlement slug is empty")
 	}
 
-	return strings.Join([]string{resourcePart, escapeParts(e.Slug)}, ":"), nil
+	return strings.Join([]string{resourcePart, escapeParts(e.GetSlug())}, ":"), nil
 }
 
-func makeResourceBid(r *v2.Resource) (string, error) {
+func MakeResourceBid(r *v2.Resource) (string, error) {
 	resourcePart, err := resourcePartToStr(r)
 	if err != nil {
 		return "", err
@@ -170,7 +173,7 @@ func makeResourceBid(r *v2.Resource) (string, error) {
 	return strings.Join([]string{BidPrefix, ResourceBidPrefix, resourcePart}, ":"), nil
 }
 
-func makeEntitlementBid(e *v2.Entitlement) (string, error) {
+func MakeEntitlementBid(e *v2.Entitlement) (string, error) {
 	entitlementPart, err := entitlementPartToStr(e)
 	if err != nil {
 		return "", err
@@ -179,12 +182,12 @@ func makeEntitlementBid(e *v2.Entitlement) (string, error) {
 	return strings.Join([]string{BidPrefix, EntitlementBidPrefix, entitlementPart}, ":"), nil
 }
 
-func makeGrantBid(g *v2.Grant) (string, error) {
-	principalPart, err := resourcePartToStr(g.Principal)
+func MakeGrantBid(g *v2.Grant) (string, error) {
+	principalPart, err := resourcePartToStr(g.GetPrincipal())
 	if err != nil {
 		return "", err
 	}
-	entitlementPart, err := entitlementPartToStr(g.Entitlement)
+	entitlementPart, err := entitlementPartToStr(g.GetEntitlement())
 	if err != nil {
 		return "", err
 	}

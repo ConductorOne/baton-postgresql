@@ -1,0 +1,383 @@
+package pebble
+
+import (
+	"fmt"
+
+	"google.golang.org/protobuf/encoding/protowire"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
+)
+
+// NOTE (2b): deleteResourceIndexesRaw / deleteGrantIndexesRaw are GONE.
+// Prior-row index cleanup is an obligation of rawdb's typed record ops
+// (StageGrantPutInline/StageGrantDelete derive cleanup keys from the
+// primary key; StageResourcePut/StageResourceDelete consume the prior
+// value through the ResourceParent deriver).
+
+// scanGrantExternalIDRaw extracts only the stored external_id (field 2)
+// from a marshaled GrantRecord. Used by the bare-id grant lookup to check
+// a probe hit's public id without a full unmarshal. Last occurrence wins,
+// matching the full scanners.
+func scanGrantExternalIDRaw(value []byte) (string, error) {
+	var externalID string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 2 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return "", fmt.Errorf("raw record: grant external_id has wire type %v", typ)
+		}
+		v, n := protowire.ConsumeString(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		externalID = v
+		value = value[n:]
+	}
+	return externalID, nil
+}
+
+// scanGrantEntitlementResourceTypeRaw extracts only the entitlement's
+// resource_type_id from a marshaled GrantRecord, borrowing the bytes
+// from value. The stats grouping path needs just this one field;
+// scanGrantIndexFieldsRaw materializes five strings per grant. Like
+// the full scanner, the last occurrence of the entitlement field wins.
+func scanGrantEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
+	var entRT []byte
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 3 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return nil, fmt.Errorf("raw record: grant entitlement has wire type %v", typ)
+		}
+		msg, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		if err := rawdb.ScanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
+			if fnum == 1 {
+				entRT = val
+			}
+		}); err != nil {
+			return nil, err
+		}
+		value = value[n:]
+	}
+	return entRT, nil
+}
+
+// scanGrantSourceKeysRawBytes extracts the source-entitlement ID keys
+// from a marshaled GrantRecord without a full unmarshal. Sources are
+// field 9 (map<string, GrantSourceRecord>), encoded as repeated embedded
+// messages each with sub-field 1 = key string. The keys are views
+// borrowed from value (valid only while value's backing bytes are),
+// appended to keys — pass a recycled keys[:0] to reuse its backing
+// array across calls. The seal-time grant digest build calls this once
+// per grant (see appendGrantHashIndexRow).
+func scanGrantSourceKeysRawBytes(value []byte, out [][]byte) ([][]byte, error) {
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 9 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return nil, fmt.Errorf("raw record: grant sources entry has wire type %v", typ)
+		}
+		entry, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		for len(entry) > 0 {
+			eNum, eTyp, en := protowire.ConsumeTag(entry)
+			if en < 0 {
+				return nil, protowire.ParseError(en)
+			}
+			entry = entry[en:]
+			if eNum == 1 && eTyp == protowire.BytesType {
+				k, kn := protowire.ConsumeBytes(entry)
+				if kn < 0 {
+					return nil, protowire.ParseError(kn)
+				}
+				out = append(out, k)
+				entry = entry[kn:]
+			} else {
+				en = protowire.ConsumeFieldValue(eNum, eTyp, entry)
+				if en < 0 {
+					return nil, protowire.ParseError(en)
+				}
+				entry = entry[en:]
+			}
+		}
+	}
+	return out, nil
+}
+
+// scanEntitlementResourceTypeRaw extracts only the entitlement's
+// resource_type_id (its own resource's type) from a marshaled
+// EntitlementRecord, borrowing the bytes from value. The stats grouping
+// path needs just this one field; scanEntitlementResourceRaw
+// materializes two strings per entitlement. Like the full scanner, the
+// last occurrence of the resource field wins.
+func scanEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
+	var rt []byte
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 3 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return nil, fmt.Errorf("raw record: entitlement resource has wire type %v", typ)
+		}
+		msg, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		if err := rawdb.ScanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
+			if fnum == 1 {
+				rt = val
+			}
+		}); err != nil {
+			return nil, err
+		}
+		value = value[n:]
+	}
+	return rt, nil
+}
+
+func scanEntitlementResourceRaw(value []byte) (string, string, error) {
+	var rt, id string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 3 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", "", protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return "", "", fmt.Errorf("raw record: entitlement resource has wire type %v", typ)
+		}
+		msg, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return "", "", protowire.ParseError(n)
+		}
+		var err error
+		rt, id, err = rawdb.ScanResourceRefRaw(msg)
+		if err != nil {
+			return "", "", err
+		}
+		value = value[n:]
+	}
+	return rt, id, nil
+}
+
+func scanEntitlementIdentityFieldsRaw(value []byte) (string, string, string, error) {
+	var externalID, rt, id string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", "", "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		switch num {
+		case 2:
+			if typ != protowire.BytesType {
+				return "", "", "", fmt.Errorf("raw record: entitlement external_id has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeString(value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			externalID = v
+			value = value[n:]
+		case 3:
+			if typ != protowire.BytesType {
+				return "", "", "", fmt.Errorf("raw record: entitlement resource has wire type %v", typ)
+			}
+			msg, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			var err error
+			rt, id, err = rawdb.ScanResourceRefRaw(msg)
+			if err != nil {
+				return "", "", "", err
+			}
+			value = value[n:]
+		default:
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			value = value[n:]
+		}
+	}
+	return rt, id, externalID, nil
+}
+
+func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, string, bool, error) {
+	var entRT, entRID, entID, principalRT, principalID string
+	var needsExpansion bool
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", "", "", "", "", false, protowire.ParseError(n)
+		}
+		value = value[n:]
+		switch num {
+		case 3:
+			if typ != protowire.BytesType {
+				return "", "", "", "", "", false, fmt.Errorf("raw record: grant entitlement has wire type %v", typ)
+			}
+			msg, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", "", "", false, protowire.ParseError(n)
+			}
+			var err error
+			entRT, entRID, entID, err = scanEntitlementRefRaw(msg)
+			if err != nil {
+				return "", "", "", "", "", false, err
+			}
+			value = value[n:]
+		case 4:
+			if typ != protowire.BytesType {
+				return "", "", "", "", "", false, fmt.Errorf("raw record: grant principal has wire type %v", typ)
+			}
+			msg, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", "", "", false, protowire.ParseError(n)
+			}
+			var err error
+			principalRT, principalID, err = scanPrincipalRefRaw(msg)
+			if err != nil {
+				return "", "", "", "", "", false, err
+			}
+			value = value[n:]
+		case 7:
+			if typ != protowire.VarintType {
+				return "", "", "", "", "", false, fmt.Errorf("raw record: grant needs_expansion has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(value)
+			if n < 0 {
+				return "", "", "", "", "", false, protowire.ParseError(n)
+			}
+			needsExpansion = v != 0
+			value = value[n:]
+		default:
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", "", "", "", "", false, protowire.ParseError(n)
+			}
+			value = value[n:]
+		}
+	}
+	return entRT, entRID, entID, principalRT, principalID, needsExpansion, nil
+}
+
+// scanGrantNeedsExpansionRaw extracts only the needs_expansion flag
+// (GrantRecord field 7) with a shallow wire scan — for callers that already
+// carry the identity in the key and need nothing else from the value.
+func scanGrantNeedsExpansionRaw(value []byte) (bool, error) {
+	var needsExpansion bool
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return false, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num == 7 {
+			if typ != protowire.VarintType {
+				return false, fmt.Errorf("raw record: grant needs_expansion has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(value)
+			if n < 0 {
+				return false, protowire.ParseError(n)
+			}
+			needsExpansion = v != 0
+			value = value[n:]
+			continue
+		}
+		n = protowire.ConsumeFieldValue(num, typ, value)
+		if n < 0 {
+			return false, protowire.ParseError(n)
+		}
+		value = value[n:]
+	}
+	return needsExpansion, nil
+}
+
+func scanEntitlementRefRaw(value []byte) (string, string, string, error) {
+	var rt, rid, eid []byte
+	err := rawdb.ScanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {
+		switch num {
+		case 1:
+			rt = val
+		case 2:
+			rid = val
+		case 3:
+			eid = val
+		default:
+		}
+	})
+	return string(rt), string(rid), string(eid), err
+}
+
+func scanPrincipalRefRaw(value []byte) (string, string, error) {
+	var rt, id []byte
+	err := rawdb.ScanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {
+		switch num {
+		case 1:
+			rt = val
+		case 2:
+			id = val
+		default:
+		}
+	})
+	return string(rt), string(id), err
+}

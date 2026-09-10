@@ -3,9 +3,11 @@ package retry
 import (
 	"context"
 	"math"
+	"sync"
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -16,6 +18,7 @@ import (
 var tracer = otel.Tracer("baton-sdk/retry")
 
 type Retryer struct {
+	mu           sync.Mutex
 	attempts     uint
 	maxAttempts  uint
 	initialDelay time.Duration
@@ -45,69 +48,95 @@ func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
 }
 
 func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
-	ctx, span := tracer.Start(ctx, "retry.ShouldWaitAndRetry")
-	defer span.End()
-
+	// Fast paths that are not actually retrying skip span emission. The
+	// success path is hit once per completed action in the syncer loop,
+	// which historically inflated long-running sync traces by thousands
+	// of no-op spans.
 	if err == nil {
+		r.mu.Lock()
 		r.attempts = 0
+		r.mu.Unlock()
 		return true
 	}
 	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
 		return false
 	}
 
+	ctx, span := tracer.Start(ctx, "retry.ShouldWaitAndRetry")
+	defer span.End()
+
+	r.mu.Lock()
 	r.attempts++
+	attempts := r.attempts
+	maxAttempts := r.maxAttempts
+	initialDelay := r.initialDelay
+	maxDelay := r.maxDelay
+	r.mu.Unlock()
+
 	l := ctxzap.Extract(ctx)
 
-	if r.maxAttempts > 0 && r.attempts > r.maxAttempts {
-		l.Warn("max attempts reached", zap.Error(err), zap.Uint("max_attempts", r.maxAttempts))
+	if maxAttempts > 0 && attempts > maxAttempts {
+		l.Warn("max attempts reached", zap.Error(err), zap.Uint("max_attempts", maxAttempts))
 		return false
 	}
 
 	// use linear backoff by default
 	var wait time.Duration
-	if r.attempts > math.MaxInt64 {
-		wait = r.maxDelay
+	if attempts > math.MaxInt64 {
+		wait = maxDelay
 	} else {
-		wait = time.Duration(int64(r.attempts)) * r.initialDelay
+		wait = time.Duration(int64(attempts)) * initialDelay
 	}
 
 	// If error contains rate limit data, use that instead
+	rateLimited := false
 	if st, ok := status.FromError(err); ok {
 		details := st.Details()
 		for _, detail := range details {
 			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
-				waitResetAt := time.Until(rlData.ResetAt.AsTime())
+				waitResetAt := time.Until(rlData.GetResetAt().AsTime())
 				if waitResetAt <= 0 {
 					continue
 				}
-				duration := time.Duration(rlData.Limit)
-				if duration <= 0 {
-					continue
+				remaining := rlData.GetRemaining()
+				if remaining <= 0 {
+					// No requests remaining, so we need to wait until the reset time.
+					wait = waitResetAt
+					rateLimited = true
+					break
 				}
-				waitResetAt /= duration
+				// Divide the wait time by the remaining requests to get the time to wait per request.
+				waitResetAt /= time.Duration(remaining)
 				// Round up to the nearest second to make sure we don't hit the rate limit again
 				waitResetAt = time.Duration(math.Ceil(waitResetAt.Seconds())) * time.Second
 				if waitResetAt > 0 {
 					wait = waitResetAt
+					rateLimited = true
 					break
 				}
 			}
 		}
 	}
 
-	if wait > r.maxDelay {
-		wait = r.maxDelay
+	if wait > maxDelay {
+		wait = maxDelay
 	}
 
 	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
 
-	for {
-		select {
-		case <-time.After(wait):
-			return true
-		case <-ctx.Done():
-			return false
-		}
+	// Report actual slept time after the fact via the context wait observer
+	// (the same channel the rate-limit gates use — one reporting mechanism
+	// for every in-process sleep site): a cancelled context cuts the sleep
+	// short and must not inflate wait stats with the planned duration.
+	// Contexts without an observer (e.g. connectorbuilder's connector-side
+	// retryers) make this a no-op.
+	waitStart := time.Now()
+	select {
+	case <-time.After(wait):
+		ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: wait, Retry: !rateLimited})
+		return true
+	case <-ctx.Done():
+		ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Since(waitStart), Retry: !rateLimited})
+		return false
 	}
 }

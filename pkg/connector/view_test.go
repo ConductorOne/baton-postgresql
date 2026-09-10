@@ -5,23 +5,24 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 
 	connectorv2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGrantRevokeView(t *testing.T) {
-	ctx, syncer, manager, client := newTestConnector(t)
+	ctx, syncer, c1zPath, client := newTestConnector(t)
 
 	err := syncer.Sync(ctx)
 	require.NoError(t, err)
 	err = syncer.Close(ctx)
 	require.NoError(t, err)
 
-	c1z, err := manager.LoadC1Z(ctx)
+	c1z, err := dotc1z.NewStore(ctx, c1zPath)
 	require.NoError(t, err)
-	defer func(c1z *dotc1z.C1File) {
-		err := c1z.Close()
+	defer func(c1z c1zstore.Store) {
+		err := c1z.Close(ctx)
 		require.NoError(t, err)
 	}(c1z)
 

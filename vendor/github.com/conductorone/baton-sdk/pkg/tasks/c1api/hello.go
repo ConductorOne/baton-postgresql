@@ -3,16 +3,18 @@ package c1api
 import (
 	"context"
 	"errors"
+	"runtime"
 	"runtime/debug"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/shirou/gopsutil/v3/host"
+	"github.com/shirou/gopsutil/v4/host"
 	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type helloHelpers interface {
@@ -25,7 +27,9 @@ type helloTaskHandler struct {
 	helpers helloHelpers
 }
 
-func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloRequest_OSInfo, error) {
+// collectOSInfo queries gopsutil for host info and fills in conservative
+// defaults for any fields the Hello request marks as required.
+func collectOSInfo(ctx context.Context) (*v1.BatonServiceHelloRequest_OSInfo, error) {
 	l := ctxzap.Extract(ctx)
 
 	info, err := host.InfoWithContext(ctx)
@@ -34,11 +38,36 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		return nil, err
 	}
 
+	// The Hello message requires these fields to be set. If any are empty, the connector will fail to register with C1.
 	if info.VirtualizationSystem == "" {
 		info.VirtualizationSystem = "none"
 	}
 
-	return &v1.BatonServiceHelloRequest_OSInfo{
+	if info.Hostname == "" {
+		info.Hostname = "unknown"
+	}
+
+	if info.Platform == "" {
+		info.Platform = info.OS
+	}
+
+	if info.PlatformFamily == "" {
+		info.PlatformFamily = info.Platform
+	}
+
+	if info.KernelVersion == "" {
+		info.KernelVersion = "unknown"
+	}
+
+	if info.PlatformVersion == "" {
+		info.PlatformVersion = info.KernelVersion
+	}
+
+	if info.KernelArch == "" {
+		info.KernelArch = runtime.GOARCH
+	}
+
+	return v1.BatonServiceHelloRequest_OSInfo_builder{
 		Hostname:             info.Hostname,
 		Os:                   info.OS,
 		Platform:             info.Platform,
@@ -47,29 +76,73 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		KernelVersion:        info.KernelVersion,
 		KernelArch:           info.KernelArch,
 		VirtualizationSystem: info.VirtualizationSystem,
-	}, nil
+	}.Build(), nil
 }
 
-func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInfo {
+// collectBuildInfo reads runtime/debug build metadata, falling back to safe
+// placeholder values when a field is missing.
+func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInfo {
 	l := ctxzap.Extract(ctx)
+	buildInfo := v1.BatonServiceHelloRequest_BuildInfo_builder{
+		LangVersion:    "0.0.0",
+		Package:        "/dummy/path",
+		PackageVersion: "0.0.0",
+	}.Build()
 
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		l.Error("failed to get build info")
-		return &v1.BatonServiceHelloRequest_BuildInfo{}
+		return buildInfo
 	}
 
-	return &v1.BatonServiceHelloRequest_BuildInfo{
-		LangVersion:    bi.GoVersion,
-		Package:        bi.Main.Path,
-		PackageVersion: bi.Main.Version,
+	if bi.Main.Path == "" {
+		l.Warn("missing build info Main.path")
+	} else {
+		buildInfo.SetPackage(bi.Main.Path)
 	}
+
+	if bi.Main.Version == "" {
+		l.Warn("missing build info Main.version")
+	} else {
+		buildInfo.SetPackageVersion(bi.Main.Version)
+	}
+
+	if bi.GoVersion == "" {
+		l.Warn("missing build info GoVersion")
+	} else {
+		buildInfo.SetLangVersion(bi.GoVersion)
+	}
+
+	return buildInfo
+}
+
+// sendHello performs a single Hello RPC. It is the shared implementation used
+// by both the startup handshake (taskID == "") and server-scheduled HelloTasks
+// dispatched through Process (taskID == the task's id).
+func sendHello(ctx context.Context, cc types.ConnectorClient, svc batonHelloClient, taskID string) error {
+	mdResp, err := cc.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
+	if err != nil {
+		return err
+	}
+
+	osInfo, err := collectOSInfo(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = svc.Hello(ctx, v1.BatonServiceHelloRequest_builder{
+		TaskId:            taskID,
+		BuildInfo:         collectBuildInfo(ctx),
+		OsInfo:            osInfo,
+		ConnectorMetadata: mdResp.GetMetadata(),
+	}.Build())
+	return err
 }
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "helloTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	if c.task == nil {
 		return errors.New("cannot handle task: task is nil")
 	}
@@ -79,29 +152,11 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 		zap.Stringer("task_type", tasks.GetType(c.task)),
 	)
 
-	cc := c.helpers.ConnectorClient()
-	mdResp, err := cc.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
-	if err != nil {
-		return err
-	}
-
-	taskID := c.task.GetId()
-
-	osInfo, err := c.osInfo(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = c.helpers.HelloClient().Hello(ctx, &v1.BatonServiceHelloRequest{
-		TaskId:            taskID,
-		BuildInfo:         c.buildInfo(ctx),
-		OsInfo:            osInfo,
-		ConnectorMetadata: mdResp.GetMetadata(),
-	})
+	err = sendHello(ctx, c.helpers.ConnectorClient(), c.helpers.HelloClient(), c.task.GetId())
 	if err != nil {
 		l.Error("failed while sending hello", zap.Error(err))
 		return err
 	}
-
 	return nil
 }
 
