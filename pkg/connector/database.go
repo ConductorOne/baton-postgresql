@@ -13,7 +13,7 @@ import (
 	"github.com/conductorone/baton-postgresql/pkg/postgres"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 var databaseResourceType = &v2.ResourceType{
@@ -54,12 +54,13 @@ func (r *databaseSyncer) makeResource(ctx context.Context, dbModel *postgres.Dat
 	}
 }
 
-func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 	var err error
+	pToken := &opts.PageToken
 
 	if parentResourceID != nil {
-		return nil, "", nil, fmt.Errorf("unexpected parent resource ID on database")
+		return nil, nil, fmt.Errorf("unexpected parent resource ID on database")
 	}
 
 	databases, nextPageToken, err := r.clientPool.
@@ -67,7 +68,7 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 		ListDatabases(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	defaultDbClient := r.clientPool.Default(ctx)
@@ -96,24 +97,24 @@ func (r *databaseSyncer) List(ctx context.Context, parentResourceID *v2.Resource
 				l.Warn("skipping database with error", zap.String("database", o.Name), zap.Error(err))
 				continue
 			}
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 
 		ret = append(ret, r.makeResource(ctx, o))
 	}
 
-	return ret, nextPageToken, nil, nil
+	return ret, &resource.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
-func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	ens, err := entitlementsForPrivs(ctx, resource, postgres.Create|postgres.Temporary|postgres.Connect)
+func (r *databaseSyncer) Entitlements(ctx context.Context, res *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	ens, err := entitlementsForPrivs(ctx, res, postgres.Create|postgres.Temporary|postgres.Connect)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	ens = append(ens, &v2.Entitlement{
-		Resource:    resource,
-		Id:          formatEntitlementID(resource, "superuser", false),
+		Resource:    res,
+		Id:          formatEntitlementID(res, "superuser", false),
 		DisplayName: "Superuser",
 		Description: "Has Superuser access",
 		GrantableTo: []*v2.ResourceType{roleResourceType},
@@ -122,8 +123,8 @@ func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 	})
 
 	ens = append(ens, &v2.Entitlement{
-		Resource:    resource,
-		Id:          formatEntitlementID(resource, "create-db", false),
+		Resource:    res,
+		Id:          formatEntitlementID(res, "create-db", false),
 		DisplayName: "Create Database",
 		Description: "Can create new databases",
 		GrantableTo: []*v2.ResourceType{roleResourceType},
@@ -132,8 +133,8 @@ func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 	})
 
 	ens = append(ens, &v2.Entitlement{
-		Resource:    resource,
-		Id:          formatEntitlementID(resource, "create-role", false),
+		Resource:    res,
+		Id:          formatEntitlementID(res, "create-role", false),
 		DisplayName: "Create Role",
 		Description: "Can create new roles",
 		GrantableTo: []*v2.ResourceType{roleResourceType},
@@ -142,8 +143,8 @@ func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 	})
 
 	ens = append(ens, &v2.Entitlement{
-		Resource:    resource,
-		Id:          formatEntitlementID(resource, "bypass-rls", false),
+		Resource:    res,
+		Id:          formatEntitlementID(res, "bypass-rls", false),
 		DisplayName: "Bypass RLS",
 		Description: "Can bypass row level security options",
 		GrantableTo: []*v2.ResourceType{roleResourceType},
@@ -152,8 +153,8 @@ func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 	})
 
 	ens = append(ens, &v2.Entitlement{
-		Resource:    resource,
-		Id:          formatEntitlementID(resource, "replication", false),
+		Resource:    res,
+		Id:          formatEntitlementID(res, "replication", false),
 		DisplayName: "Replication",
 		Description: "Can initiate replication connections, and create and drop replication slots",
 		GrantableTo: []*v2.ResourceType{roleResourceType},
@@ -161,28 +162,29 @@ func (r *databaseSyncer) Entitlements(ctx context.Context, resource *v2.Resource
 		Slug:        "bypass rls",
 	})
 
-	return ens, "", nil, nil
+	return ens, &resource.SyncOpResults{}, nil
 }
 
-func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	rID, err := parseObjectID(resource.Id.Resource)
+func (r *databaseSyncer) Grants(ctx context.Context, res *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+	pToken := &opts.PageToken
+	rID, err := parseObjectID(res.Id.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	db, err := r.client.GetDatabase(ctx, rID)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	roles, nextPageToken, err := r.client.ListRoles(ctx, &postgres.Pager{Token: pToken.Token, Size: pToken.Size})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	ret, err := roleGrantsForPrivileges(ctx, r.client, resource, roles, db)
+	ret, err := roleGrantsForPrivileges(ctx, r.client, res, roles, db)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	for _, r := range roles {
@@ -194,11 +196,11 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		}
 
 		if r.Superuser {
-			eID := formatEntitlementID(resource, "superuser", false)
+			eID := formatEntitlementID(res, "superuser", false)
 			ret = append(ret, &v2.Grant{
 				Entitlement: &v2.Entitlement{
 					Id:       eID,
-					Resource: resource,
+					Resource: res,
 				},
 				Principal: principal,
 				Id:        formatGrantID(eID, principal.Id),
@@ -206,11 +208,11 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		}
 
 		if r.CreateDb {
-			eID := formatEntitlementID(resource, "create-db", false)
+			eID := formatEntitlementID(res, "create-db", false)
 			ret = append(ret, &v2.Grant{
 				Entitlement: &v2.Entitlement{
 					Id:       eID,
-					Resource: resource,
+					Resource: res,
 				},
 				Principal: principal,
 				Id:        formatGrantID(eID, principal.Id),
@@ -218,11 +220,11 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		}
 
 		if r.CreateRole {
-			eID := formatEntitlementID(resource, "create-role", false)
+			eID := formatEntitlementID(res, "create-role", false)
 			ret = append(ret, &v2.Grant{
 				Entitlement: &v2.Entitlement{
 					Id:       eID,
-					Resource: resource,
+					Resource: res,
 				},
 				Principal: principal,
 				Id:        formatGrantID(eID, principal.Id),
@@ -230,11 +232,11 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		}
 
 		if r.BypassRowSecurity {
-			eID := formatEntitlementID(resource, "bypass-rls", false)
+			eID := formatEntitlementID(res, "bypass-rls", false)
 			ret = append(ret, &v2.Grant{
 				Entitlement: &v2.Entitlement{
 					Id:       eID,
-					Resource: resource,
+					Resource: res,
 				},
 				Principal: principal,
 				Id:        formatGrantID(eID, principal.Id),
@@ -242,11 +244,11 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		}
 
 		if r.Replication {
-			eID := formatEntitlementID(resource, "replication", false)
+			eID := formatEntitlementID(res, "replication", false)
 			ret = append(ret, &v2.Grant{
 				Entitlement: &v2.Entitlement{
 					Id:       eID,
-					Resource: resource,
+					Resource: res,
 				},
 				Principal: principal,
 				Id:        formatGrantID(eID, principal.Id),
@@ -254,7 +256,7 @@ func (r *databaseSyncer) Grants(ctx context.Context, resource *v2.Resource, pTok
 		}
 	}
 
-	return ret, nextPageToken, nil, nil
+	return ret, &resource.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
 func (r *databaseSyncer) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {

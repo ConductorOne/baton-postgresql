@@ -2,11 +2,17 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const withGrantOptions = " WITH GRANT OPTION"
@@ -21,11 +27,8 @@ type ClientDatabasesPool struct {
 }
 
 func NewClientDatabasesPool(ctx context.Context, dsn string, opts ...ClientOpt) (*ClientDatabasesPool, error) {
-	l := ctxzap.Extract(ctx)
-
 	defaultClientDsn, err := New(ctx, dsn, opts...)
 	if err != nil {
-		l.Error("failed to create default database client", zap.Error(err))
 		return nil, err
 	}
 
@@ -83,7 +86,7 @@ func (p *ClientDatabasesPool) Get(ctx context.Context, database string) (*Client
 
 	db, err := pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
-		return nil, "", err
+		return nil, "", classifyConnectError(err)
 	}
 
 	c := &Client{
@@ -123,6 +126,26 @@ func WithSchemaFilter(filter []string) ClientOpt {
 	}
 }
 
+// classifyConnectError attaches a gRPC status to connection failures the
+// server attributes to the client's authorization, so the process exit code
+// reports a configuration problem instead of an unknown error. SQLSTATE
+// class 28 is "invalid authorization specification" (bad user or password,
+// or no matching pg_hba.conf entry); 42501 is "insufficient privilege" (no
+// CONNECT on the database). The original error stays in the chain.
+func classifyConnectError(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return err
+	}
+	switch {
+	case strings.HasPrefix(pgErr.Code, "28"):
+		return fmt.Errorf("%w: %w", status.Error(codes.Unauthenticated, "postgres authentication failed"), err)
+	case pgErr.Code == "42501":
+		return fmt.Errorf("%w: %w", status.Error(codes.PermissionDenied, "postgres permission denied"), err)
+	}
+	return err
+}
+
 func New(ctx context.Context, dsn string, opts ...ClientOpt) (*Client, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -137,7 +160,7 @@ func New(ctx context.Context, dsn string, opts ...ClientOpt) (*Client, error) {
 
 	db, err := pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
-		return nil, err
+		return nil, classifyConnectError(err)
 	}
 
 	c := &Client{

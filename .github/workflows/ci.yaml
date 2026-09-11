@@ -50,9 +50,7 @@ jobs:
           POSTGRES_PASSWORD: secretpassword
     env:
       BATON_LOG_LEVEL: debug
-      BATON_STORAGE_ENGINE: pebble
       BATON_DSN: "postgres://postgres:secretpassword@localhost:5432/postgres"
-      CONNECTOR_GRANT: "grant:entitlement:role:3375:member:role:10"
       CONNECTOR_ENTITLEMENT: "entitlement:role:3375:member"
       CONNECTOR_PRINCIPAL: "role:10"
       CONNECTOR_PRINCIPAL_TYPE: "role"
@@ -70,64 +68,32 @@ jobs:
       #   env:
       #     PGPASSWORD: secretpassword
       #   run: psql -h localhost --user postgres -f test/ci.sql
-      - name: Install baton
-        run: ./scripts/get-baton.sh && mv baton /usr/local/bin
       - name: Build baton-postgresql
         run: go build ./cmd/baton-postgresql
-      - name: Run baton-postgresql
-        run: ./baton-postgresql
-
-      - name: Grant entitlement
-        run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.CONNECTOR_PRINCIPAL }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
-
-      - name: Check grant was granted
-        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status --arg principal "${{ env.CONNECTOR_PRINCIPAL }}" 'any(.grants[]?; .principal.id.resource == $principal)'
-
-      - name: Revoke grant
-        run: ./baton-postgresql --revoke-grant "${{ env.CONNECTOR_GRANT }}"
-
-      - name: Check grant was revoked
-        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status --arg principal "${{ env.CONNECTOR_PRINCIPAL }}" 'any(.grants[]?; .principal.id.resource == $principal) | not'
-
-      - name: Grant entitlement
-        run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.CONNECTOR_PRINCIPAL }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
-
-      - name: Check grant was re-granted
-        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --output-format=json | jq --exit-status --arg principal "${{ env.CONNECTOR_PRINCIPAL }}" 'any(.grants[]?; .principal.id.resource == $principal)'
-
-      - name: Create user
-        run: ./baton-postgresql --create-account-login "${{ env.CONNECTOR_NEW_USER }}"
-
-      - name: Check user was created
-        run: ./baton-postgresql && baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?;.["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login)'
-
-      - name: Fetch user id
-        shell: bash
-        run: |
-          set -euo pipefail
-          NEW_USER_ID=$(baton resources -t role -o json | jq -r --arg login "${{ env.CONNECTOR_NEW_USER }}" '.resources[].resource | select(any(.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login)) | .id.resource')
-          if [ -z "$NEW_USER_ID" ]; then
-            echo "No role found for login '$CONNECTOR_NEW_USER'" >&2
-            exit 1
-          fi
-          if [ "$(printf '%s\n' "$NEW_USER_ID" | wc -l)" -ne 1 ]; then
-            echo "Expected exactly one role for login '$CONNECTOR_NEW_USER', but found multiple matches" >&2
-            exit 1
-          fi
-          echo "NEW_USER_ID=$NEW_USER_ID" >> "$GITHUB_ENV"
-
-      - name: Grant role to user
-        run: ./baton-postgresql --grant-entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" --grant-principal "${{ env.NEW_USER_ID }}" --grant-principal-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
-
-      - name: Check role was granted
-        run: ./baton-postgresql && baton grants --entitlement "${{ env.CONNECTOR_ENTITLEMENT }}" -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.grants[]?; any(.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) or any(.grant.principal.annotations[]?; .["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login))'
-
-      - name: Delete user
-        run: ./baton-postgresql --delete-resource "${{ env.NEW_USER_ID }}" --delete-resource-type "${{ env.CONNECTOR_PRINCIPAL_TYPE }}"
-
-      - name: Check user was deleted
-        run: ./baton-postgresql && baton resources -o json | jq -e --arg login "${{ env.CONNECTOR_NEW_USER }}" 'any(.resources[].resource.annotations[]?;.["@type"]=="type.googleapis.com/c1.connector.v2.UserTrait" and .login==$login) | not'
-
-      # TODO: get correct role id using baton CLI
-      # - name: Rotate credentials for user
-      #   run: ./baton-postgresql --rotate-credentials 'role:16384' --rotate-credentials-type 'role'
+      # Both shared actions install the latest released baton CLI; the action
+      # has no version pin or checksum. That is fine for reading this
+      # connector's c1z files: a newer CLI reads older files, and the pinned
+      # SDK is a released version, so the latest CLI is at least as new as the
+      # connector's c1z writer once that release's assets are published.
+      - name: Test connector syncing
+        uses: ConductorOne/github-workflows/actions/sync-test@v4
+        with:
+          connector: ./baton-postgresql
+          baton-entitlement: ${{ env.CONNECTOR_ENTITLEMENT }}
+          baton-principal: ${{ env.CONNECTOR_PRINCIPAL }}
+          baton-principal-type: ${{ env.CONNECTOR_PRINCIPAL_TYPE }}
+          # The unauthenticated-sync check only auto-invalidates credential-
+          # looking variables, and BATON_DSN is not one, so hand it a bad DSN.
+          # The connector maps the resulting SQLSTATE 28P01 to Unauthenticated
+          # (exit 16), which is what the check accepts.
+          bad-credentials: BATON_DSN=postgres://bad:bad@localhost:5432/postgres
+      - name: Test account provisioning
+        uses: ConductorOne/github-workflows/actions/account-provisioning@v4
+        with:
+          connector: ./baton-postgresql
+          account-login: ${{ env.CONNECTOR_NEW_USER }}
+          # The SDK validates this as an address, and the connector names the
+          # created role after it, so the lookup has to go by email.
+          account-email: ${{ env.CONNECTOR_NEW_USER }}@example.com
+          account-type: ${{ env.CONNECTOR_PRINCIPAL_TYPE }}
+          search-method: email
