@@ -1,15 +1,50 @@
 package postgres
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"testing"
 
+	"github.com/conductorone/baton-postgresql/pkg/testutil"
 	"github.com/jackc/pgconn"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func TestClientDatabasesPoolGetPermissionDenied(t *testing.T) {
+	ctx := context.Background()
+	container := testutil.SetupPostgresContainer(ctx, t)
+	t.Cleanup(func() {
+		container.Db().Close()
+		require.NoError(t, container.Container().Terminate(ctx))
+	})
+
+	_, err := container.Db().Exec(ctx, "CREATE ROLE limited_login LOGIN PASSWORD 'test-password'")
+	require.NoError(t, err)
+	_, err = container.Db().Exec(ctx, "CREATE DATABASE restricted_database")
+	require.NoError(t, err)
+	_, err = container.Db().Exec(ctx, "REVOKE CONNECT ON DATABASE restricted_database FROM PUBLIC")
+	require.NoError(t, err)
+
+	dsn, err := url.Parse(container.Dsn())
+	require.NoError(t, err)
+	dsn.User = url.UserPassword("limited_login", "test-password")
+	pool, err := NewClientDatabasesPool(ctx, dsn.String())
+	require.NoError(t, err)
+	t.Cleanup(pool.Default(ctx).db.Close)
+
+	database, err := pool.Default(ctx).GetDatabaseByName(ctx, "restricted_database")
+	require.NoError(t, err)
+	client, _, err := pool.Get(ctx, fmt.Sprint(database.ID))
+	require.Nil(t, client)
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "42501", pgErr.Code)
+}
 
 func TestClassifyConnectError(t *testing.T) {
 	cases := []struct {

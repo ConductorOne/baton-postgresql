@@ -27,11 +27,8 @@ type ClientDatabasesPool struct {
 }
 
 func NewClientDatabasesPool(ctx context.Context, dsn string, opts ...ClientOpt) (*ClientDatabasesPool, error) {
-	l := ctxzap.Extract(ctx)
-
 	defaultClientDsn, err := New(ctx, dsn, opts...)
 	if err != nil {
-		l.Error("failed to create default database client", zap.Error(err))
 		return nil, err
 	}
 
@@ -89,7 +86,7 @@ func (p *ClientDatabasesPool) Get(ctx context.Context, database string) (*Client
 
 	db, err := pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
-		return nil, "", err
+		return nil, "", classifyConnectError(err)
 	}
 
 	c := &Client{

@@ -24,8 +24,7 @@ func main() {
 }
 
 func getConnector(ctx context.Context, pgc *cfg.Postgresql, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
-	// No log here: RunConnector prints the returned error on exit, and the
-	// pool constructor already logs the connection failure.
+	// RunConnector prints the returned error on exit, so don't log it here.
 	cb, err := connector.New(ctx, pgc.Dsn, pgc.Schemas, pgc.IncludeColumns, pgc.IncludeLargeObjects, pgc.SyncAllDatabases, pgc.SkipBuiltInFunctions)
 	if err != nil {
 		return nil, nil, err
