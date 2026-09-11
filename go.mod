@@ -3,7 +3,7 @@ module github.com/conductorone/baton-postgresql
 go 1.25.2
 
 require (
-	github.com/conductorone/baton-sdk v0.29.0
+	github.com/conductorone/baton-sdk v0.30.0
 	github.com/ennyjfrick/ruleguard-logfatal v0.0.2
 	github.com/georgysavva/scany v1.2.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
