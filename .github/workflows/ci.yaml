@@ -70,6 +70,11 @@ jobs:
       #   run: psql -h localhost --user postgres -f test/ci.sql
       - name: Build baton-postgresql
         run: go build ./cmd/baton-postgresql
+      # Both shared actions install the latest released baton CLI; the action
+      # has no version pin or checksum. That is fine for reading this
+      # connector's c1z files: a newer CLI reads older files, and the pinned
+      # SDK is a released version, so the latest CLI is at least as new as the
+      # connector's c1z writer once that release's assets are published.
       - name: Test connector syncing
         uses: ConductorOne/github-workflows/actions/sync-test@v4
         with:
@@ -77,6 +82,11 @@ jobs:
           baton-entitlement: ${{ env.CONNECTOR_ENTITLEMENT }}
           baton-principal: ${{ env.CONNECTOR_PRINCIPAL }}
           baton-principal-type: ${{ env.CONNECTOR_PRINCIPAL_TYPE }}
+          # The unauthenticated-sync check only auto-invalidates credential-
+          # looking variables, and BATON_DSN is not one, so hand it a bad DSN.
+          # The connector maps the resulting SQLSTATE 28P01 to Unauthenticated
+          # (exit 16), which is what the check accepts.
+          bad-credentials: BATON_DSN=postgres://bad:bad@localhost:5432/postgres
       - name: Test account provisioning
         uses: ConductorOne/github-workflows/actions/account-provisioning@v4
         with:
